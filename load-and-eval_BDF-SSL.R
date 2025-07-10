@@ -83,6 +83,29 @@
   }
   
   
+  if(!require(mdatools)){
+    install.packages("mdatools")
+    require(mdatools)
+  }
+
+  # if(!require(pcv)){
+  #   install.packages("pcv")
+  #   require(pcv)
+  # }
+
+  if(!require(kohonen)){
+    install.packages("kohonen")
+  }
+  
+  if(!require(ChemometricsWithR)){
+    install_github("rwehrens/ChemometricsWithR")
+    require(ChemometricsWithR)
+  }
+  if(!require(corrplot)){
+    install.packages(corrplot)
+    require(corrplot)
+  }
+  
     ## local paths work pc (backup in diss folder)
   if(stringr::str_detect(osVersion,"Windows")){
     # meta
@@ -1990,40 +2013,322 @@ plt
 ggsave(plot=plt,filename="spc_processing_vis.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 12)
 
 ### PCA ####
+#### calculate / load ####
+# !!! CREATED BELOW !!!!
+all_data=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/all_data"))
+
+# all archive samples with spc available
+all_archive=all_data%>%filter(!str_detect(Campaign,"field")&!is.na(spc_sg_snv_rs4[,1]))
 
 
+# fast ...-ish
+#pc=prcomp(all_archive%>%pull(spc_sg_snv),rank. = 200)
+# slow but fancier
 
-pc=pca(spc,ncomp = 50,method = "nipals")
+pc=pca(all_archive%>%pull(spc_sg_snv_rs4),ncomp = 200,method = "nipals")
+saveRDS(pc,"C:/Users/adam/Desktop/UNI/PhD/DISS/data/temp/pc")#paste0(data_dir,"/Sean_Environment/R_main/model_out/pca_all-spc_sg-snv"))
 
-#saveRDS(pc,paste0(code_dir,"GitLab/phd_code/R_main/temp/BDF_zeitreihe_spc_snv"))
+# quick vis
+plotScores(pc$calres,cgroup=all_archive%>%
+             #pull(pH_CaCl2)
+             #pull(`S [wt-%]`)%>%factor
+             #pull(`ROC [wt-%]`)
+             pull(`Nt [wt-%]`)
+             #pull(site_id)%>%factor
+             #pull(Depth_bottom)
+             #pull(DateEvent)
+             #pull(`Land use`)%>%factor
+             #pull(`TOC [wt-%]`)
+           )
 
-pca_all_snv=readRDS(paste0(data_dir,"/Sean_Environment/R_main/models/pca_allBDF_sg-snv"))
-pc$calres$scores%>%as_tibble()%>%cbind(BDF_Zeitreihe_spc)->pc_merge
+#### loadings ####
+pca_all_snv$loadings%>%
+  as_tibble()%>%
+  mutate(wn=rownames(pca_all_snv$loadings)%>%as.numeric())%>%
+  # comp 1-6
+  select(all_of(c("wn",paste("Comp",c(1:6)))))%>%
+  pivot_longer(cols = paste("Comp",c(1:6)))->loadings_data
+  
+all_archive$spc_sg_snv_rs4%>%as_tibble%>%pivot_longer(cols=as.character(seq(7474,426,-4)))%>%
+  mutate(name=as.numeric(name))%>%
+  summarise_metrics(grouping_variables = "name",
+                    variables = "value")%>%
+  rename(wn=name)->spc_data
 
 
+plot(ggplot(spc_data,aes(x=wn))+
+  geom_hline(yintercept = 0,linetype="dotted")+
+  geom_ribbon(aes(ymin=min,ymax=max),alpha=.1)+
+  geom_ribbon(aes(ymin=q25,ymax=q75),alpha=.1)+
+  geom_line(aes(y=median),linewidth=.25)+
+  geom_line(data=loadings_data,aes(x=wn,y=value*20),col="red3")+
+  scale_x_log10(expression("Wavenumber [c"*m^-1*"]"),breaks=c(500,2000,5000))+
+  scale_y_continuous(name = "Loadings",labels=~./20,
+                     sec.axis = sec_axis(name = "Absorbance",transform = "identity"))+
+theme_pubr()+
+  # theme(axis.title = element_blank(),
+  #       axis.text.y = element_blank(),
+  #       axis.ticks.y = element_blank())+
+facet_wrap(~name,scales="fixed"))->loadings_plt
+  
+  ggsave(plot=loadings_plt,filename="pc_loadings.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 6)
 
-pc_merge=BDF_Zeitreihe_spc
+
+# reload
+pc=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/pca_all-spc-sg-snv-rs4"))
+
+pc_merge=all_archive
 pc_merge=cbind(pc_merge,pc$calres$scores)
-pc_merge_unnest=pc_merge%>%unnest(pc)
-
-# correlating spectra derived pc with variables in BDF database + soliTOC
-as_tibble(cor(select_if(pc_merge_unnest,.predicate = function(x){is.numeric(x)&tmp_fun(x)}),use="pairwise.complete.obs",method="spearman"))%>%select(`Comp 1`,`Comp 2`,`Comp 3`)%>%cbind(var=select_if(pc_merge_unnest,.predicate = function(x){is.numeric(x)&tmp_fun(x)})%>%names)->all_cor
 
 
-left_join(all_prep_flag,tibble(sample_id=pc_merge$sample_id,pc=select(pc_merge,all_of(names(pc_merge)[which(str_detect(names(pc_merge),"Comp"))]))),by=c("Name"="sample_id"))->pc_merge_prep
+#### pca scores with ellipses ####
+
+pca_plt_txt_scale=20
+
+sel_sites =  c(
+  "BDF02",
+  "BDF12",
+  "BDF13",
+  "BDF23",
+  "BDF30",
+  "BDF33",
+  "BDF35",
+  "BDF46"
+)
 
 
-pc_merge_unnest=unnest(pc_merge_prep,pc)
+ggplot(filter(pc_merge,
+              !site_id %in% sel_sites),
+       aes(x = `Comp 1`, y = `Comp 2`)) +
+  geom_vline(xintercept = 0,linetype="dotted")+
+  geom_hline(yintercept = 0,linetype="dotted")+
+  geom_point(size = .75, col = "grey") +
+  geom_point(data = filter(
+    pc_merge,
+    site_id %in% sel_sites
+  ), aes(col = site_id,shape=if_else(Depth_top>.25,"b","t")),stroke=1) + stat_ellipse(
+    data = filter(
+      pc_merge,
+      site_id %in% sel_sites
+    ),
+    aes(fill = site_id, col = site_id),
+    level = .99,
+    geom = "polygon",
+    alpha = .1
+  ) + 
+  xlab(paste0("PC1 (",(expl_var[1])%>%format(digits=2,nsmall = 1,scientific = F),"%)"))+
+  ylab(paste0("PC2 (",(expl_var[2])%>%format(digits=2,nsmall = 1,scientific = F),"%)"))+
+  scale_shape_manual("",breaks=c("b","t"),values=c(3,1),labels=c("Subsoil","Topsoil"))+
+  ggthemes::scale_color_colorblind("Location") + 
+  ggthemes::scale_fill_colorblind("Location") +
+  theme_minimal()+
+  theme(text = element_text(size = pca_plt_txt_scale),
+        axis.text = element_text(size = pca_plt_txt_scale))->plt_pc12
 
-pc_corTable_data=select(pc_merge_unnest,
-                        `Comp 1`,`Comp 2`,`Comp 3`,
-                        Ct,CORG,TC,TOC,TOC400,ROC,TIC900,
-                        Nt,Pt,K_t,Fe_t,Al_t,`T`,U,S)
 
-png(paste0(code_dir,"GitLab/phd_code/R_main/temp/pca123_corrplot.png"),
-    width=1000,height=1000)
-corrplot::corrplot.mixed(cor(pc_corTable_data,use="pairwise.complete.obs",method = "spearman"),lower.col = "black")
+
+ggplot(filter(pc_merge,
+              !site_id %in% sel_sites),
+       aes(x = `Comp 3`, y = `Comp 4`)) +
+  geom_vline(xintercept = 0,linetype="dotted")+
+  geom_hline(yintercept = 0,linetype="dotted")+
+  geom_point(size = .75, col = "grey") +
+  geom_point(data = filter(
+    pc_merge,
+    site_id %in% sel_sites
+  ), aes(col = site_id,shape=if_else(Depth_top>.2,"b","t")),stroke=1) + stat_ellipse(
+    data = filter(
+      pc_merge,
+      site_id %in% sel_sites
+    ),
+    aes(fill = site_id, col = site_id),
+    level = .99,
+    geom = "polygon",
+    alpha = .1
+  ) + 
+  xlab(paste0("PC3 (",(expl_var[3])%>%format(digits=2,nsmall = 1,scientific = F),"%)"))+
+  ylab(paste0("PC4 (",(expl_var[4])%>%format(digits=2,nsmall = 1,scientific = F),"%)"))+
+  scale_shape_manual("",breaks=c("b","t"),values=c(3,1),labels=c("Subsoil","Topsoil"))+
+  ggthemes::scale_color_colorblind("Location") + 
+  ggthemes::scale_fill_colorblind("Location") +
+  theme_minimal()+
+  theme(text = element_text(size = pca_plt_txt_scale),
+        axis.text = element_text(size = pca_plt_txt_scale))->plt_pc34
+
+
+ggsave(plot=plt_pc12+theme(legend.position = "none"),filename = "pca_12.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=7,width=7,device="png")
+
+ggsave(plot=plt_pc34+theme(legend.position = "none"),filename = "pca_34.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=7,width=7,device="png")
+
+
+
+#### correlations ####
+# overview
+
+svg("C:/Users/adam/Desktop/UNI/PhD/DISS/plots/corrplot_all.svg")
+pc_merge%>%select(!matches(c(paste("Comp",c(11:200))))&!contains("spc")&where(is.numeric))%>%
+  cor(method="s",use="pairwise.complete.obs")%>%
+  corrplot(tl.col = "black",method="color",diag = F,addCoef.col = "black",tl.cex = .125,number.cex = .0625)->all_cor
 dev.off()
+
+
+svg("C:/Users/adam/Desktop/UNI/PhD/DISS/plots/corrplot_all_used.svg")
+pc_merge%>%select(all_of(c(paste("Comp",c(1:10)),
+                           variable_lookup%>%unlist)))%>%
+  cor(method="s",use="pairwise.complete.obs")%>%
+corrplot(tl.col = "black",method="color",diag = F,addCoef.col = "black",tl.cex = .5,number.cex = .2)
+dev.off()
+expl_var=pc$res$cal$expvar
+#expl_var
+#names(pc_merge)
+
+# custom selection
+corrplot_variable_lookup=variable_lookup[c("TOC400","ROC","TIC900","TOC","TC","CORG","Ct","Nt","Pt","K_t","Mg_t",
+                                           "KAKpot","T","U","S","Fe_t","Al_t")]
+corrplot_variable_lookup$pH_CaCl2="pH (CaCl2)"
+
+
+png(filename = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/corrplot.png",width = 4000,height=4000)
+
+{pc_merge%>%rename(`pH (CaCl2)`=pH_CaCl2)%>%select(all_of(c(paste("Comp",c(1:6)),
+                           corrplot_variable_lookup%>%unlist)))%>%
+  #custom variables for diss, manual order
+  select(all_of(paste("Comp",c(1:6))),TOC400,ROC,TIC900,TOC,TC,CORG,Ct,Nt,Pt,K_t,Mg_t,KAKpot,pH_CaCl2,`T`,U,S,Fe_t,Al_t)%>%
+  rename_with(~(unlist(corrplot_variable_lookup))[.x],.cols = c(TOC400,ROC,TIC900,TOC,TC,CORG,Ct,Nt,Pt,K_t,Mg_t,KAKpot,pH_CaCl2,`T`,U,S,Fe_t,Al_t))%>%
+  rename_with(~paste0("PC",str_remove(.x,"Comp ")," (",
+                      (expl_var[.x])%>%format(digits=2,nsmall = 1,scientific = F)%>%str_remove(" "),"%)"),
+              .cols = paste("Comp",c(1:6)))%>%
+  cor(method="s",use="pairwise.complete.obs")%>%
+  corrplot(tl.col = "black",method="color",diag = F,addCoef.col = "black",tl.cex = 6,number.cex = 3)}
+
+
+dev.off()
+
+# # correlating spectra derived pc with variables in BDF database + soliTOC
+# as_tibble(cor(select_if(pc_merge,
+#                         .predicate = function(x){is.numeric(x)}),use="pairwise.complete.obs",method="spearman"))%>%
+#   select(all_of(paste("Comp",c(1:10))))%>%
+#            cbind(var=select_if(pc_merge,.predicate = function(x){is.numeric(x)})%>%names)->all_cor
+# 
+# 
+# left_join(all_prep_flag,tibble(sample_id=pc_merge$sample_id,pc=select(pc_merge,all_of(names(pc_merge)[which(str_detect(names(pc_merge),"Comp"))]))),by=c("Name"="sample_id"))->pc_merge_prep
+# 
+# 
+# pc_merge_unnest=unnest(pc_merge_prep,pc)
+# 
+# pc_corTable_data=select(pc_merge_unnest,
+#                         `Comp 1`,`Comp 2`,`Comp 3`,
+#                         Ct,CORG,TC,TOC,TOC400,ROC,TIC900,
+#                         Nt,Pt,K_t,Fe_t,Al_t,`T`,U,S)
+# 
+# png(paste0(code_dir,"GitLab/phd_code/R_main/temp/pca123_corrplot.png"),
+#     width=1000,height=1000)
+# corrplot::corrplot.mixed(cor(pc_corTable_data,use="pairwise.complete.obs",method = "spearman"),lower.col = "black")
+# dev.off()
+
+
+
+### SOM Self-organizing map ####
+
+
+som_grid <- somgrid(xdim=10, ydim=10, topo="hexagonal")
+som_model <- supersom(data = all_archive%>%
+                        pull(spc_sg_snv_rs4),
+                      #Y=Data_table_reference%>%as.matrix(),
+                      grid = som_grid,rlen = 500,alpha=c(.05,.01),d)
+
+saveRDS(som_model,"C:/Users/adam/Desktop/UNI/PhD/DISS/data/temp/som")
+
+# extract codebooks
+
+codebook=som_model$codes[[1]]
+
+pc_codebook=predict(pca_all_snv,codebook)
+
+
+ggplot(data=pc_codebook$scores%>%as_tibble%>%
+         bind_cols(expand.grid(x=1:10,y=1:10))%>%
+         mutate(label=paste0("[",x,",",y,"]")),
+       aes(x=`Comp 1`,y=`Comp 2`),col="grey")+
+  #geom_point(data = pc_merge,size=.5,alpha=.5,shape=16)+
+  geom_density_2d_filled(data=pc_merge)+
+  scale_fill_discrete(type = c("white",RColorBrewer::brewer.pal(9,name = "Blues")))+
+  geom_path(color = "grey80",aes(group=x),linewidth=.25) +
+  geom_path(color = "grey80",aes(group=y),linewidth=.25) +
+  geom_point(aes(col=factor(c(1:100))),shape=4,col="red",stroke=1,size=1)+
+  
+  geom_text(aes(label=label),col="black",size=3,vjust=1,hjust=1,check_overlap = T)+
+  coord_cartesian(xlim = c(-10,13),ylim = c(-8,6))+
+  xlab(paste0("PC1 (",(expl_var[1])%>%format(digits=2,nsmall = 1,scientific = F),"%)"))+
+  ylab(paste0("PC2 (",(expl_var[2])%>%format(digits=2,nsmall = 1,scientific = F),"%)"))+
+  #ggtitle("Self organising map grid shown in the PC space")+
+  theme_pubr()+
+  theme(legend.position = "none")->som_grid_plt
+
+ggsave(plot=som_grid_plt,filename="som_pc_grid.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 5,height = 5)
+
+
+
+ggplot(data=pc_codebook$scores%>%as_tibble%>%
+         bind_cols(expand.grid(x=1:10,y=1:10))%>%
+         mutate(label=paste0("[",x,",",y,"]")),
+       aes(x=`Comp 3`,y=`Comp 4`),col="grey")+
+  #geom_point(data = pc_merge,size=.5,alpha=.5,shape=16)+
+  geom_density_2d_filled(data=pc_merge)+
+  scale_fill_discrete(type = c("white",RColorBrewer::brewer.pal(9,name = "Blues")))+
+  geom_path(color = "grey80",aes(group=x),linewidth=.25) +
+  geom_path(color = "grey80",aes(group=y),linewidth=.25) +
+  geom_point(aes(col=factor(c(1:100))),shape=4,col="red",stroke=1,size=1)+
+  
+  geom_text(aes(label=label),col="black",size=3,vjust=1,hjust=1,check_overlap = T)+
+  coord_cartesian(xlim = c(-4.5,3.5),ylim = c(-3.5,3))+
+  xlab(paste0("PC3 (",(expl_var[3])%>%format(digits=2,nsmall = 1,scientific = F),"%)"))+
+  ylab(paste0("PC4 (",(expl_var[4])%>%format(digits=2,nsmall = 1,scientific = F),"%)"))+
+  #ggtitle("Self organising map grid shown in the PC space")+
+  theme_pubr()+
+  theme(legend.position = "none")->som_grid_plt2
+
+
+
+som_grid_plt2
+  
+  ggsave(plot=som_grid_plt2,filename="som_pc_grid2.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 5,height = 5)
+
+
+
+
+# Coordinates of SOM units
+unit_coords <- som_model$grid$pts  # a data frame of x, y positions for each SOM node
+
+# Each observation's unit mapping (which neuron it belongs to)
+obs_units <- som_model$unit.classif
+
+# Map each observation to its SOM unit's (x, y) coordinates
+obs_coords <- unit_coords[obs_units, ]
+
+# Combine into a single data frame for plotting
+plot_data <- data.frame(
+  x = obs_coords[, 1],
+  y = obs_coords[, 2]
+)%>%bind_cols(pc_merge)
+
+
+ggplot(plot_data, aes(x = x, y = y, color =`U [wt-%]`,shape = `Land use`)) +
+  geom_jitter(width = 0.2, height = 0.2, size = 3) +
+  theme_minimal() +
+  coord_fixed() +
+  labs(title = "SOM Mapping in ggplot2", x = "SOM X", y = "SOM Y")+scale_color_viridis_c(na.value = rgb(0,0,0,0),alpha = .5)
+
+
+ggplot(plot_data, aes(x = x, y = y, color =`TOC [wt-%]`,shape = `Land use`)) +
+  geom_jitter(width = 0.2, height = 0.2, size = 3) +
+  theme_minimal() +
+  coord_fixed() +
+  labs(title = "SOM Mapping in ggplot2", x = "SOM X", y = "SOM Y")+scale_color_viridis_c(na.value = rgb(0,0,0,0),alpha = .5)
 
 
 ## Predictions 2024models all ####
@@ -2168,12 +2473,15 @@ mbl_zeitreihe=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/mbl_ze
 
 
 all_pred=left_join(pls_pred,cubist_pred)%>%left_join(bind_rows(mbl_frisch,mbl_zeitreihe))
-all_data=left_join(BDF_SSL,spc_tmp)%>%left_join(all_pred,by=c("LabelEvent"="ID"))
+all_data=left_join(BDF_SSL,spc_tmp%>%select(-spc_rs),by="LabelEvent")%>%left_join(all_pred,by=c("LabelEvent"="ID"))
 
 
 
-saveRDS(spc_tmp,paste0(data_dir,"/Sean_Environment/R_main/model_out/spc_tmp"))
-saveRDS(all_data,paste0(data_dir,"/Sean_Environment/R_main/model_out/all_data"))
+#saveRDS(spc_tmp,paste0(data_dir,"/Sean_Environment/R_main/model_out/spc_tmp"))
+#saveRDS(all_data,paste0(data_dir,"/Sean_Environment/R_main/model_out/all_data"))
+# local serialisation when not at uni -> move manually to dir stated above
+saveRDS(spc_tmp,"C:/Users/adam/Desktop/UNI/PhD/DISS/data/temp/spc_tmp")
+saveRDS(all_data,"C:/Users/adam/Desktop/UNI/PhD/DISS/data/temp/all_data")
 
 
 all_data=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/all_data"))
@@ -2516,6 +2824,187 @@ eval_zeitreihe%>%filter(!str_detect(variable,"ratio"))%>%
                          # )
   )%>%
   ggsave(filename="EDApreprocessingRMSEzr.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 16,height = 12)
+
+
+
+
+## Models - train size ####
+
+# fetch eval for TOC, diff model types,
+#' using DE-2024-BDF_archive + DE-2024-BDF_BfUL for training
+# eval with test set
+
+
+out_test=c()
+for (i in c(1:5)){
+  for (mod_type in c("cubist_train_size_",
+                     "svmLin_train_size_",
+                     "pls_train_size_",
+                     "rf_train_size_")
+  ){
+    run_i=paste0(mod_type,i)
+    message(paste0("#######################################################################\n",
+                   "#######################################################################\n",
+                   "#######################################################################\n",
+                   run_i))  
+    out_test=bind_rows(out_test,(readRDS(paste0(data_dir,"/Sean_Environment/R_main/models/train_size/validation/Valtest_",run_i))))
+  }
+}
+
+
+
+
+out_test%>%
+  mutate(model=str_split_fixed(model_type,"_",2)[,1])%>%#pull(model)
+  group_by(model,size)%>%summarise(mean.rmse=mean(rmse,na.rm=T),
+                                   min.rmse=min(rmse,na.rm=T),
+                                   max.rmse=max(rmse,na.rm=T),
+                                   mean.time=mean(time/tuning_grid_size,na.rm=T),
+                                   min.time=min(time/tuning_grid_size,na.rm=T),
+                                   max.time=max(time/tuning_grid_size,na.rm=T),
+                                   mean.total.time=mean(time,na.rm=T),
+                                   min.total.time=min(time,na.rm=T),
+                                   max.total.time=max(time,na.rm=T)
+  )%>%
+  ggplot(aes(x=size,col=model))+
+  geom_hline(yintercept = c(
+    seq(.1,.7,.1),
+    log10(c(.1,.3,1,3,10,30,100,300))/10-.2-(((log10(300))/10-.2)-((log10(100))/10-.2))
+  ),
+  col="grey",linetype="dotted")+
+  
+  geom_hline(yintercept = .0)+
+  
+  geom_errorbar(aes(ymin=min.rmse,
+                    ymax=max.rmse,
+                    y=mean.rmse,
+                    group=model),
+                linewidth=.25)+
+  geom_line(aes(y=mean.rmse,
+                group=model))+
+  
+  
+  geom_errorbar(aes(ymin=log10(min.time)/10-.2-(((log10(300))/10-.2)-((log10(100))/10-.2)),
+                    ymax=log10(max.time)/10-.2-(((log10(300))/10-.2)-((log10(100))/10-.2)),
+                    y=log10(mean.time)/10-.2-(((log10(300))/10-.2)-((log10(100))/10-.2)),
+                    group=model),
+                linewidth=.25)+
+  geom_line(aes(y=log10(mean.time)/10-.2-(((log10(300))/10-.2)-((log10(100))/10-.2)),
+                group=model))+
+  scale_y_continuous("RMSEP [wt-% TOC]",
+                     breaks=seq(0.1,.7,.1),
+                     sec.axis = sec_axis("Average training time per tuning-grid element [sec]",
+                                         transform=~10**((.+.2+(((log10(300))/10-.2)-((log10(100))/10-.2)))*10),
+                                         breaks=c(.1,.3,1,3,10,30,100)))+
+  coord_cartesian(ylim = c(-.35,.75))+
+  ggthemes::scale_color_colorblind("",breaks=c("cubist","pls","rf","svmLin"),labels=c("Cubist","PLSR","RF","SVM.linear"))+
+  xlab("Traingsset-size")+
+  scale_linetype_discrete("",breaks=c("rmse","time"),labels=c("RMSEP","Time"))+
+  ggpubr::theme_pubr()->plt_train_size_test
+
+
+
+ggsave(plot=plt_train_size_test,filename = "train_size_test.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=10,width=7,device="png")
+
+
+
+
+
+
+# eval with DE-2023-BDF_archive
+
+out=c()
+for (i in c(1:5)){
+  for (mod_type in c("cubist_train_size_",
+                     "svmLin_train_size_",
+                     "pls_train_size_",
+                     "rf_train_size_")
+  ){
+    run_i=paste0(mod_type,i)
+    message(paste0("#######################################################################\n",
+                   "#######################################################################\n",
+                   "#######################################################################\n",
+                   run_i))  
+    out=bind_rows(out,(readRDS(paste0(data_dir,"Sean_Environment/R_main/models/train_size/validation/Valmain_",run_i))))
+  }
+}
+
+
+
+
+out%>%
+  mutate(model=str_split_fixed(model_type,"_",2)[,1])%>%#pull(model)
+  group_by(model,size)%>%summarise(mean.rmse=mean(rmse,na.rm=T),
+                                   min.rmse=min(rmse,na.rm=T),
+                                   max.rmse=max(rmse,na.rm=T),
+                                   mean.time=mean(time/tuning_grid_size,na.rm=T),
+                                   min.time=min(time/tuning_grid_size,na.rm=T),
+                                   max.time=max(time/tuning_grid_size,na.rm=T),
+                                   mean.total.time=mean(time,na.rm=T),
+                                   min.total.time=min(time,na.rm=T),
+                                   max.total.time=max(time,na.rm=T)
+  )%>%
+  ggplot(aes(x=size,col=model))+
+  geom_hline(yintercept = c(
+    seq(.3,.8,.1),
+    log10(c(.1,.3,1,3,10,30,100,300))/10-(((log10(300))/10+.0)-((log10(100))/10+.0))
+  ),
+  col="grey",linetype="dotted")+
+  
+  geom_hline(yintercept = .2)+
+  
+  geom_errorbar(aes(ymin=min.rmse,
+                    ymax=max.rmse,
+                    y=mean.rmse,
+                    group=model),
+                linewidth=.25)+
+  geom_line(aes(y=mean.rmse,
+                group=model))+
+  geom_errorbar(aes(ymin=log10(min.time)/10-(((log10(300))/10+.0)-((log10(100))/10+.0)),
+                    ymax=log10(max.time)/10-(((log10(300))/10+.0)-((log10(100))/10+.0)),
+                    y=log10(mean.time)/10-(((log10(300))/10+.0)-((log10(100))/10+.0)),
+                    group=model),
+                linewidth=.25)+
+  geom_line(aes(y=log10(mean.time)/10-(((log10(300))/10+.0)-((log10(100))/10+.0)),
+                group=model))+
+  scale_y_continuous("RMSEP [wt-% TOC]",
+                     breaks=seq(0.3,.8,.1),
+                     sec.axis = sec_axis("Average training time per tuning-grid element [sec]",
+                                         transform=~10**((.+(((log10(300))/10+.0)-((log10(100))/10+.0)))*10),
+                                         breaks=c(.1,.3,1,3,10,30,100)))+
+  coord_cartesian(ylim = c(-.15,.85))+
+  ggthemes::scale_color_colorblind("",breaks=c("cubist","pls","rf","svmLin"),labels=c("Cubist","PLSR","RF","SVM.linear"))+
+  xlab("Traingsset-size")+
+  scale_linetype_discrete("",breaks=c("rmse","time"),labels=c("RMSEP","Time"))+
+  ggpubr::theme_pubr()->plt_train_size_main
+
+
+
+ggsave(plot=plt_train_size_main,filename = "train_size.png",
+       path ="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=10,width=7,device="png")
+
+
+#out_comp=
+out%>%select(model_type,size,time,n,rmse)%>%
+  left_join(out_test%>%select(model_type,size,time,n,rmse),
+            by=c("model_type","size","time"),suffix = c(".main",".test"))%>%  
+  mutate(model=str_split_fixed(model_type,"_",2)[,1],rmse.diff=(rmse.main-rmse.test)/rmse.test)%>%#pull(model)
+  group_by(model,size)%>%summarise(mean.rmse=mean(rmse.diff,na.rm=T),
+                                   min.rmse=min(rmse.diff,na.rm=T),
+                                   max.rmse=max(rmse.diff,na.rm=T)
+  )%>%
+  ggplot(aes(x=size,col=model))+
+  geom_errorbar(aes(ymin=min.rmse,
+                    ymax=max.rmse,
+                    y=mean.rmse,
+                    group=model),
+                linewidth=.25)+
+  geom_line(aes(y=mean.rmse,
+                group=model))
+
 
 
 # END ####  
