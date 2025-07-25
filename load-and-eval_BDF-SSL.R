@@ -75,7 +75,13 @@
     install.packages("prospectr")
     require(prospectr)
   }
-    
+  
+  
+  if(!require(resemble)){
+    install.packages("resemble")
+    require(resemble)
+  }
+  
   
   if(!require(ggh4x)){
     install.packages("ggh4x")
@@ -233,7 +239,10 @@ variable_lookup=list(
     
     
     
-    
+#### quality palette ####  
+bg_colors <- setNames(
+  colorRampPalette(c("#d73027","#fee090","#1a9850"))(6),c("vp", "p", "f", "g", "vg", "e"))
+
     
     
     
@@ -759,9 +768,29 @@ rbind(BDF_main_soliTOC_oGS,BDF_main_soliTOC_GS)%>%
 
 #### Age of samples effect ####
 
-BDF_SSL%>%filter(Campaign=="DE-2023-BDF_archive")%>%
-  transmute(x=as.numeric(max(DateEvent,na.rm = T)-DateEvent)/(365.25 * 24 * 60 * 60)
-            ,y=`TOC [wt-%]`-`CORG  [wt-%]`)%>%
+BDF_SSL%>%
+  filter(!str_detect(Campaign,"field")#,!str_detect(Campaign,"BfUL")
+         )%>%
+  #filter(Campaign=="DE-2023-BDF_archive")%>%
+  transmute(DateEvent,x0=difftime(as.POSIXct("2024-12-31 UTC") # setting as "now" (at this time all samples were measuered)
+                                                            # NOTE: Exact measurement dates via soliTOC raw data possible, but overkill for this comparison
+                                   ,DateEvent,units = "days"),
+x1=as.numeric(x0),
+x=x1/(365.25)
+            ,y=`TOC [wt-%]`-`CORG  [wt-%]`)->tst
+
+#sampling runs
+tst_out=c()
+for (i in c(1:200)){print(i)
+  tst_out=bind_rows(tst_out,
+                    tibble(
+                      i=lm(data=tst[sample(nrow(tst),200),],formula = y~x)[["coefficients"]][1],
+                      s=lm(data=tst[sample(nrow(tst),200),],formula = y~x)[["coefficients"]][2]
+                    )
+  )
+}
+
+tst%>%
   ggplot(aes(x=x,y=y))+
   
   geom_bin2d(drop=F,binwidth=c(.5,.1))+
@@ -770,22 +799,19 @@ BDF_SSL%>%filter(Campaign=="DE-2023-BDF_archive")%>%
                        high=colorblind_safe_colors()[1],trans="log1p",na.value = 0,
                        breaks=c(0,1,2,5,10,20,50))+
   #geom_point(shape=4,size=.5)+
+ # coord_cartesian(xlim=c(7,30),ylim=c(-1.4,1.4),expand = 0)+
   geom_hline(yintercept = 0,col="black",linetype="dotted")+
   geom_smooth(method="glm",se=T,col="red",fill="red",alpha=.1,linetype="dashed")+
   xlab("Sample age [years]")+
   ylab("Difference in TOC to CORG [wt-%]")+
-  theme(panel.background = element_rect(fill = "white"))+
-  # geom_abline(data=lm(data=BDF_SSL%>%filter(Campaign=="DE-2023-BDF_archive")%>%
-  #                transmute(x=(max(DateEvent,na.rm = T)-DateEvent)/(365.25 * 24 * 60 * 60)
-  #                          ,y=`TOC [wt-%]`-`CORG  [wt-%]`),formula=y~x)%>%
-  #               confint()%>%t%>%as_tibble(),
-  #             aes(intercept = `(Intercept)`,slope=x))+
-  theme_pubr()->age_diff
-  
+  theme_pubr()+
+    theme(panel.background = element_rect(fill = "white"),
+        legend.position = "inside",
+        legend.direction = "horizontal",
+        legend.position.inside = c(.8,.9))->age_diff
+age_diff  
 #plots
-ggsave(plot=age_diff+theme(legend.position = "none"),filename="CORG_TOC_Age.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 6,height = 4)
-#legend
-ggsave(plot=get_legend(age_diff),filename="CORG_TOC_age_legend.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 4,height = 4)
+ggsave(plot=age_diff,filename="CORG_TOC_Age.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 6,height = 4)
 
 # uncorrelated:
 cor(x=(BDF_SSL%>%filter(Campaign=="DE-2023-BDF_archive")%>%
@@ -2018,7 +2044,10 @@ ggsave(plot=plt,filename="spc_processing_vis.png",path="C:/Users/adam/Desktop/UN
 all_data=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/all_data"))
 
 # all archive samples with spc available
-all_archive=all_data%>%filter(!str_detect(Campaign,"field")&!is.na(spc_sg_snv_rs4[,1]))
+all_archive=all_data%>%filter(!str_detect(Campaign,"field")&
+                                !is.na(spc_sg_snv_rs4[,1])&
+                                !LabelEvent=="LAAA" #bad scan
+                              )
 
 
 # fast ...-ish
@@ -2042,9 +2071,9 @@ plotScores(pc$calres,cgroup=all_archive%>%
            )
 
 #### loadings ####
-pca_all_snv$loadings%>%
+pc$loadings%>%
   as_tibble()%>%
-  mutate(wn=rownames(pca_all_snv$loadings)%>%as.numeric())%>%
+  mutate(wn=rownames(pc$loadings)%>%as.numeric())%>%
   # comp 1-6
   select(all_of(c("wn",paste("Comp",c(1:6)))))%>%
   pivot_longer(cols = paste("Comp",c(1:6)))->loadings_data
@@ -2071,10 +2100,22 @@ theme_pubr()+
   #       axis.ticks.y = element_blank())+
 facet_wrap(~name,scales="fixed"))->loadings_plt
   
+loadings_plt
+
   ggsave(plot=loadings_plt,filename="pc_loadings.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 6)
 
 
-# reload
+#### RELOAD pca ####
+  
+all_data=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/all_data"))
+
+# all archive samples with spc available
+all_archive=all_data%>%filter(!str_detect(Campaign,"field")&
+                                !is.na(spc_sg_snv_rs4[,1])&
+                                !LabelEvent=="LAAA" #bad scan
+)
+
+  
 pc=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/pca_all-spc-sg-snv-rs4"))
 
 pc_merge=all_archive
@@ -2095,7 +2136,7 @@ sel_sites =  c(
   "BDF35",
   "BDF46"
 )
-
+expl_var=pc$res$cal$expvar
 
 ggplot(filter(pc_merge,
               !site_id %in% sel_sites),
@@ -2155,7 +2196,8 @@ ggplot(filter(pc_merge,
   theme(text = element_text(size = pca_plt_txt_scale),
         axis.text = element_text(size = pca_plt_txt_scale))->plt_pc34
 
-
+plt_pc12
+plt_pc34
 ggsave(plot=plt_pc12+theme(legend.position = "none"),filename = "pca_12.png",
        path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
        height=7,width=7,device="png")
@@ -2208,12 +2250,17 @@ png(filename = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/corrplot.png",width = 4
 
 dev.off()
 
-# # correlating spectra derived pc with variables in BDF database + soliTOC
-# as_tibble(cor(select_if(pc_merge,
-#                         .predicate = function(x){is.numeric(x)}),use="pairwise.complete.obs",method="spearman"))%>%
-#   select(all_of(paste("Comp",c(1:10))))%>%
-#            cbind(var=select_if(pc_merge,.predicate = function(x){is.numeric(x)})%>%names)->all_cor
-# 
+
+# correlating spectra derived pc with variables in BDF database + soliTOC
+pc_merge%>%select(all_of(c(
+  paste("Comp",c(1:10)),
+  Data_table_reference%>%select(where(is.numeric))%>%names,
+  Data_table_soliTOC%>%select(where(is.numeric))%>%names,
+  Event_table%>%select(where(is.numeric))%>%names
+)))%>%
+  cor(method="s",use="pairwise.complete.obs")%>%as_tibble->all_cor
+view(tibble(var=colnames(all_cor),all_cor))
+  
 # 
 # left_join(all_prep_flag,tibble(sample_id=pc_merge$sample_id,pc=select(pc_merge,all_of(names(pc_merge)[which(str_detect(names(pc_merge),"Comp"))]))),by=c("Name"="sample_id"))->pc_merge_prep
 # 
@@ -2234,22 +2281,86 @@ dev.off()
 
 ### SOM Self-organizing map ####
 
-
+#### training and data prep ####
 som_grid <- somgrid(xdim=10, ydim=10, topo="hexagonal")
+set.seed(123)
 som_model <- supersom(data = all_archive%>%
                         pull(spc_sg_snv_rs4),
                       #Y=Data_table_reference%>%as.matrix(),
-                      grid = som_grid,rlen = 500,alpha=c(.05,.01),d)
+                      grid = som_grid,rlen = 500,alpha=c(.05,.01))
 
 saveRDS(som_model,"C:/Users/adam/Desktop/UNI/PhD/DISS/data/temp/som")
 
+som_model=readRDS("C:/Users/adam/Desktop/UNI/PhD/DISS/data/temp/som")
+
 # extract codebooks
-
+som_grid <- som_model$grid
 codebook=som_model$codes[[1]]
+pc_codebook=predict(pc,codebook)
 
-pc_codebook=predict(pca_all_snv,codebook)
+# Compute the hex grid layout
+get_hex_coords = function(x, y) {
+  x_offset <- ifelse(y %% 2 == 0, 0, sqrt(3)/2)
+  data.frame(
+    x = x * sqrt(3) + x_offset,
+    y = y * 1.5
+  )
+}
+positions <- as.data.frame(som_grid$pts)
+positions <- positions %>%
+  mutate(index = row_number()) %>%
+  rowwise() %>%
+  mutate(
+    hex_x = get_hex_coords(x, y)$x,
+    hex_y = get_hex_coords(x, y)$y
+  ) %>%
+  ungroup()
 
 
+#### overview ####
+# quick & ditry grid vis
+
+
+ggplot(positions, aes(x = x, y = y)) +
+  geom_hex(stat = "identity", fill = rgb(1,1,1,0), color = "black",linewidth=.5) +  # for actual hex shapes
+  coord_fixed(xlim=c(1,10.5),ylim=c(.7,9)) +
+  geom_text(aes(label=paste(x%>%floor,(y*1.25)%>%floor,sep="-")))+
+  theme_pubr()
+
+# visualise codebook vectors (like pca loadings)
+codebook_prep=tibble(positions,codebook%>%as_tibble)%>%
+  pivot_longer(colnames(codebook))%>%mutate(name=as.numeric(name))
+
+ggplot(spc_data,aes(x=wn))+
+  geom_hline(yintercept = 0,linetype="dotted")+
+  geom_ribbon(aes(ymin=min,ymax=max),alpha=.1)+
+  geom_ribbon(aes(ymin=q25,ymax=q75),alpha=.1)+
+  geom_line(aes(y=median),linewidth=.25)+
+
+  geom_line(
+  data=
+    codebook_prep%>%mutate(x= floor(x),
+                           y = (y*1.25)%>%floor,
+                           label=paste(x,y,sep="-"))%>%
+       filter(label%in%c(
+        "1-1"
+        ,"1-10"
+        ,"10-1"
+        ,"10-10"
+        ,"10-7"
+        ,"5-6"
+       # ,"9-9"
+      )),
+aes(x=name,y=value,col=label))+
+  scale_color_manual("Node",values = colorblind_safe_colors())+
+  theme_pubr()+
+  scale_x_log10(expression("Wavenumber [c"*m^-1*"]"),breaks=c(500,2000,5000))+
+  scale_y_continuous("Absorbance")
+  
+
+
+
+#### pc codebook vector vis #####
 ggplot(data=pc_codebook$scores%>%as_tibble%>%
          bind_cols(expand.grid(x=1:10,y=1:10))%>%
          mutate(label=paste0("[",x,",",y,"]")),
@@ -2300,7 +2411,7 @@ som_grid_plt2
 
 
 
-
+#### property vis ####
 # Coordinates of SOM units
 unit_coords <- som_model$grid$pts  # a data frame of x, y positions for each SOM node
 
@@ -2315,6 +2426,147 @@ plot_data <- data.frame(
   x = obs_coords[, 1],
   y = obs_coords[, 2]
 )%>%bind_cols(pc_merge)
+
+sel_sites =  c(
+  "BDF02",
+  "BDF12",
+  "BDF13",
+  "BDF23",
+  "BDF30",
+  "BDF33",
+  "BDF35",
+  "BDF46"
+)
+
+# Plot the hex grid template
+ggplot(positions, aes(x = x, y = y)) +
+  geom_hex(stat = "identity", fill = rgb(1,1,1,0), color = "black",linewidth=.5) +  # for actual hex shapes
+  coord_fixed() +
+  theme_pubr()+
+# plot mapping
+  geom_jitter(data=plot_data%>%mutate(site_id_col=if_else(site_id%in%sel_sites,site_id,"other"),
+                                      topbot=(if_else(Depth_top>.25,"b","t"))),
+              aes(x = x, y = y, color =site_id_col,shape = topbot,size=site_id_col),
+              width = 0.2, height = 0.2,alpha=.5,stroke=1.25) +
+  #theme_minimal() +
+  theme(panel.grid = element_blank())+
+  coord_fixed() +
+  scale_x_continuous("SOM X",breaks=seq(1.25,10.25,1),labels=c(1:10),minor_breaks = c())+
+  scale_y_continuous("SOM Y",breaks=som_grid$pts[,2]%>%unique,labels=c(1:10),minor_breaks = c())+
+  scale_size_manual("BDF sites",breaks=c(sel_sites,"other"),values = c(c(rep(1,8),.5)))+
+  scale_shape_manual("",breaks=c("t","b"),values = c(1,4),labels=c("Topsoil","Subsoil"))+
+  scale_color_manual("BDF sites",breaks=c(sel_sites,"other"),
+                     values = c(colorblind_safe_colors(),rgb(.7,.7,.7,.25)),na.value = rgb(0,0,0,0))+
+  ggtitle("Self-organising map - BDF sites")->som_codes_sites
+ 
+som_codes_sites
+
+ggsave(plot=som_codes_sites+theme(legend.position = "none"),filename="som_code_sites.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 5,height = 5)
+
+# legend
+ggsave(plot=get_legend(som_codes_sites,position = "right"),filename="som_code_sites_legend.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 4)
+
+
+##### loop ####
+# Plot the hex grid template
+som_var_list=c()
+for (var_ in names(variable_lookup)){
+  data_all=left_join(positions,
+            plot_data%>%group_by(x,y)%>%
+              summarise(mean=mean(.data[[variable_lookup[[var_]]]],na.rm=T),
+                        n=length(na.omit(.data[[variable_lookup[[var_]]]])))
+  )
+  data_n=data_all%>%filter(n>0)
+  min_val=min(data_all$mean,na.rm = T)
+  max_val=max(data_all$mean,na.rm = T)
+ggplot(#positions,
+  data_all,
+  aes(x = x, y = y,fill=mean)
+  )+
+  geom_hex(stat = "identity", #fill = rgb(1,1,1,0),
+           color = "black",linewidth=.5) +  # for actual hex shapes
+  coord_fixed() +
+  theme_pubr()+
+  geom_label(data=data_n,aes(x=x,y=y,label=n),fill="white",label.padding = unit(.15,"lines"),size=3,alpha=.75)+
+  # plot mapping
+  # geom_jitter(
+  #   data=
+  #     plot_data%>%mutate(site_id_col=if_else(site_id%in%sel_sites,site_id,"other"),
+  #                                     topbot=(if_else(Depth_top>.25,"b","t"))),
+  #             aes(x = x, y = y, color =site_id_col,shape = topbot,size=site_id_col),
+  #             width = 0.2, height = 0.2,alpha=.5,stroke=1.25) +
+  # #theme_minimal() +
+  theme(panel.grid = element_blank(),
+        axis.title = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank(),
+        legend.title = element_text(size=15))+
+  coord_fixed(xlim=c(1,11),ylim=c(.7,9)) +
+  scale_x_continuous("SOM X",breaks=seq(1.25,10.25,1),labels=c(1:10),minor_breaks = c())+
+  scale_y_continuous("SOM Y",breaks=som_grid$pts[,2]%>%unique,labels=c(1:10),minor_breaks = c())+
+  scale_fill_viridis_c(name = paste(variable_lookup[[var_]],"    "),labels=c(format(min_val,digits=2,nsmall=0),format(max_val,digits=2,nsmall=0)),breaks=c(min_val,max_val))->som_var
+som_var_list[[var_]]=som_var
+#som_TOC
+ggsave(plot=som_var#+theme(legend.position = "none")
+       ,filename=paste0("som_",var_,".png"),path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/hexplots som refvar/",width = 5,height = 5)
+}
+
+ggarrange(som_var_list$TOC,som_var_list$Nt,som_var_list$Pt,
+          som_var_list$Al_t,som_var_list$Fe_t,som_var_list$KAKpot,
+          som_var_list$S,som_var_list$U,som_var_list$`T`)%>%
+  ggsave(filename="som_var_multiplot.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/hexplots som refvar/",width = 15,height = 15)
+
+# all var som property plots
+if(F){
+  
+  # Plot the hex grid template
+  som_var_list_all=c()
+  vars_=c(names(Data_table_reference%>%select(where(is.numeric))),
+          names(Data_table_soliTOC%>%select(where(is.numeric))),
+          names(select(Event_table,where(is.numeric))),"DateEvent")
+  
+  for (var_ in vars_){
+    
+    data_all=left_join(positions,
+                       summarise(group_by(plot_data,x,y),mean=mean(.data[[var_]],na.rm=T),
+                                 n=length(na.omit(.data[[var_]]))))
+    
+    
+    data_n=filter(data_all,n>0)
+    
+    min_val=min(data_all$mean,na.rm = T)
+    max_val=max(data_all$mean,na.rm = T)
+    
+    ggplot(
+      data_all,
+      aes(x = x, y = y,fill=mean)
+    )+
+      geom_hex(stat = "identity", #fill = rgb(1,1,1,0),
+               color = "black",linewidth=.5) +  # for actual hex shapes
+      coord_fixed() +
+      theme_pubr()+
+      geom_label(data=data_n,aes(x=x,y=y,label=n),fill="white",label.padding = unit(.15,"lines"),size=3,alpha=.75)+
+      
+      theme(panel.grid = element_blank(),
+            axis.title = element_blank(),
+            axis.ticks = element_blank(),
+            axis.text = element_blank(),
+            legend.title = element_text(size=15))+
+      coord_fixed(xlim=c(1,11),ylim=c(.7,9)) +
+      scale_x_continuous("SOM X",breaks=seq(1.25,10.25,1),labels=c(1:10),minor_breaks = c())+
+      scale_y_continuous("SOM Y",breaks=unique(som_grid$pts[,2]),labels=c(1:10),minor_breaks = c())+
+      scale_fill_viridis_c(name = paste(var_,"    "),
+                           labels=c(format(min_val,digits=2,nsmall=0),format(max_val,digits=2,nsmall=0)),
+                           breaks=c(min_val,max_val))->som_var
+    som_var_list_all[[var_]]=som_var
+    #som_TOC
+    ggsave(plot=som_var#+theme(legend.position = "none")
+           ,filename=paste0("som_",str_replace_all(str_replace(var_,"%","pct"),"/","_"),".png"),
+           path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/hexplots som refvar/all/",width = 5,height = 5)
+  }
+}
+
+##### etc ####
 
 
 ggplot(plot_data, aes(x = x, y = y, color =`U [wt-%]`,shape = `Land use`)) +
@@ -2460,17 +2712,37 @@ if(F){ # takes quite some time to run
 }
 
 
-### RELOAD ####
+### RELOAD model eval ####
+{
+  {
+  all_data=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/all_data"))
+  pls_eval=readRDS(paste0(data_dir,"/Sean_Environment/R_main/models/2024 models/PLS_75_25_var_dependent_preProcess/evaluation"))
+  cubist_eval=readRDS(paste0(data_dir,"/Sean_Environment/R_main/models/2024 models/Cubist_75-25-var-dependant_preProcess/evaluation"))
+  mbl_eval=readRDS(paste0(data_dir,"/Sean_Environment/R_main/models/2024 models/Mbl_models_better-split/evaluation"))
+  
+  bind_rows(
+    tibble(type="pls",pls_eval$new_eval_table),
+    tibble(type="cubist",cubist_eval$new_eval_table),
+    tibble(type="mbl",mbl_eval$new_eval_table)
+  )->all_test_eval
+  
+  
+  #tmp=readRDS(paste0(data_dir,"/Sean_Environment/R_main/models/2024 models/Cubist_75-25-var-dependant_preProcess/cubist_spc_sg1d_rs4-log1p-Mg_t"))
+  eval_all=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/all_eval"))
+  eval_zeitreihe=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/all_zeitreihe"))
+  eval_frisch=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/all_frisch"))
+  
+  }
+  #### partial ####
+  pls_pred=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/pls_pred"))
+  
+  cubist_pred=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/cubist_pred"))
+  
+  mbl_frisch=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/mbl_frisch"))
+  
+  mbl_zeitreihe=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/mbl_zeitreihe"))
 
-pls_pred=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/pls_pred"))
-
-cubist_pred=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/cubist_pred"))
-
-mbl_frisch=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/mbl_frisch"))
-
-mbl_zeitreihe=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/mbl_zeitreihe"))
-
-
+}
 
 all_pred=left_join(pls_pred,cubist_pred)%>%left_join(bind_rows(mbl_frisch,mbl_zeitreihe))
 all_data=left_join(BDF_SSL,spc_tmp%>%select(-spc_rs),by="LabelEvent")%>%left_join(all_pred,by=c("LabelEvent"="ID"))
@@ -2537,8 +2809,12 @@ for (i in all_data%>%select(contains(c("pls","cubist","mbl"))&!contains("ratio")
                            )
   
 }
-## processing effect ####
 
+saveRDS(eval_all,paste0(data_dir,"/Sean_Environment/R_main/model_out/all_eval"))
+saveRDS(eval_zeitreihe,paste0(data_dir,"/Sean_Environment/R_main/model_out/all_zeitreihe"))
+saveRDS(eval_frisch,paste0(data_dir,"/Sean_Environment/R_main/model_out/all_frisch"))
+
+## 2024models all evaluation test + zeitreihe ####
 
 ### all testing ####
 pls_eval=readRDS(paste0(data_dir,"/Sean_Environment/R_main/models/2024 models/PLS_75_25_var_dependent_preProcess/evaluation"))
@@ -2552,6 +2828,639 @@ tibble(type="mbl",mbl_eval$new_eval_table)
 )->all_test_eval
 
 
+#### obspredplots ####
+
+pls_eval$Obs_Pred_data%>%names
+
+
+
+# best rmse_test
+all_test_eval%>%filter(!str_detect(variable,"ratio"))%>%
+                         group_by(variable)%>%
+                         filter(rmse==min(rmse))->best_candidates
+
+
+view(best_candidates)
+write_excel_csv(best_candidates,"C:/Users/adam/Desktop/UNI/PhD/DISS/tables/best_candidates_test.csv")
+  
+  # # log y
+  # all_test_eval%>%filter(variable%>%str_detect("ratio",negate = T))%>%#mutate(NRMSE_iqr=test.rmse/test.iqr*100)%>%
+  #   group_by(variable)%>%summarise(NRMSEavg_min=min(nrmseavg))%>%
+  #   right_join(
+  #     all_test_eval%>%filter(variable%>%str_detect("ratio",negate = T))#%>%mutate(NRMSE_iqr=test.rmse/test.iqr*100)
+  #     ,by="variable")%>%
+  #   ggplot(aes(x=fct_reorder(variable,NRMSEavg_min),
+  #              y=nrmseavg*100,
+  #              group=fct_reorder(paste(variable,type,set,trans),nrmseavg*100)))+
+  # #  geom_hline(yintercept = c(5,10,25,50,100,250,500,1000,2000),linetype="dotted")+
+  #   geom_col(position="dodge",linewidth=1,aes(fill=variable))+
+  #   #scale_y_log10(breaks=c(5,10,25,50,100,250,500,1000,2000))+
+  #   #coord_cartesian(ylim=c(5.5,150))+
+  #   stat_summary(geom="point",fun = min,aes(group=variable),shape="_",size=10)+theme_pubr()+
+  #   theme(legend.position = "none",axis.text.x = element_text(angle=45,hjust=1,vjust=1),
+  #         axis.title.x = element_blank())+ylab(expression("NRMS"*E[avg]*" [%]"))+
+  #   annotate(geom = "text",label="Test evaluation",x = 1,y=120,hjust=0,size=5)#->test_eval_bar
+  # 
+  # 
+  
+#### nrmseavg ####
+  ##### test split axis ####
+  all_test_eval%>%filter(variable%>%str_detect("ratio",negate = T))%>%#mutate(NRMSE_iqr=test.rmse/test.iqr*100)%>%
+    group_by(variable)%>%summarise(NRMSEavg_min=min(nrmseavg))%>%
+    right_join(
+      eval_zeitreihe%>%filter(variable%>%str_detect("ratio",negate = T))#%>%mutate(NRMSE_iqr=test.rmse/test.iqr*100)
+      ,by="variable")%>%
+    ggplot(aes(x=fct_reorder(variable,NRMSEavg_min),
+               y=nrmseavg*100,
+               group=fct_reorder(paste(variable,type,set,trans),nrmseavg*100)))+
+    geom_hline(yintercept = c(10,25,50,75),linetype="dotted")+
+    geom_col(position="dodge",linewidth=1,aes(fill=variable))+
+    scale_y_continuous(breaks=c(10,25,50,75),expand=c(0,0)) +
+    coord_cartesian(ylim=c(7.5,80))+
+    stat_summary(geom="point",fun = min,aes(group=variable),shape="_",size=10)+theme_pubr()+
+    theme(legend.position = "none",axis.text.x = element_text(angle=45,hjust=1,vjust=1),
+          axis.title.x = element_blank(),
+          axis.title.y = element_text(
+            angle = 90,
+            hjust = .6,
+            vjust=0
+          ))+
+    ylab(expression("NRMS"*E[avg]*" [%]"))->test_eval_bar1
+  
+  
+  
+  all_test_eval%>%filter(variable%>%str_detect("ratio",negate = T))%>%#mutate(NRMSE_iqr=test.rmse/test.iqr*100)%>%
+    group_by(variable)%>%summarise(NRMSEavg_min=min(nrmseavg))%>%
+    right_join(
+      eval_zeitreihe%>%filter(variable%>%str_detect("ratio",negate = T))#%>%mutate(NRMSE_iqr=test.rmse/test.iqr*100)
+      ,by="variable")%>%
+    ggplot(aes(x=fct_reorder(variable,NRMSEavg_min),
+               y=nrmseavg*100,
+               group=fct_reorder(paste(variable,type,set,trans),nrmseavg*100)))+
+    geom_hline(yintercept = c(100,250),linetype="dotted")+
+    #geom_hline(yintercept = 0)+
+    geom_col(position="dodge",linewidth=1,aes(fill=variable))+
+    scale_y_continuous(breaks=c(100,250),expand=c(0,0)) +
+    coord_cartesian(ylim=c(80,250))+
+    #stat_summary(geom="point",fun = min,aes(group=variable),shape="_",size=10)+
+    theme_pubr()+
+    theme(legend.position = "none",axis.text.x = element_text(angle=45,hjust=1,vjust=1),
+          axis.title.x = element_blank())+
+    theme(
+      axis.text.x = element_blank(),
+      axis.title.y = element_blank(),
+      axis.ticks.x = element_blank(),
+      axis.line.x = element_blank(),
+      plot.margin = margin(0, 0, 0, 0)
+    )+
+    annotate(geom = "text",label="Extended library evaluation",x = 1,y=500,hjust=0,size=5)->test_eval_bar2
+  
+  
+  test_eval_bar={test_eval_bar2 / test_eval_bar1 + plot_layout(heights = c(.1, .9),guides = "collect") &
+      theme(plot.margin = margin(0, 0, 0, 0))}
+  test_eval_bar
+  ggsave(plot=test_eval_bar,filename="test_eval_bar.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+         width=8,
+         height=4)
+  # #rpiq
+  # all_test_eval%>%filter(variable%>%str_detect("ratio",negate = T))%>%#mutate(NRMSE_iqr=test.rmse/test.iqr*100)%>%
+  #   group_by(variable)%>%summarise(rpiq_max=max(rpiq))%>%
+  #   right_join(
+  #     all_test_eval%>%filter(variable%>%str_detect("ratio",negate = T))#%>%mutate(NRMSE_iqr=test.rmse/test.iqr*100)
+  #     ,by="variable")%>%
+  #   ggplot(aes(x=fct_reorder(variable,rpiq_max,.desc = T),
+  #              y=rpiq,
+  #              group=fct_reorder(paste(variable,type,set,trans),rpiq,.desc=T)))+
+  #   #geom_hline(yintercept = c(5,10,25,50,100,250,500,1000,2000),linetype="dotted")+
+  #   geom_col(position="dodge",linewidth=1,aes(fill=variable))+
+  #   #scale_y_log10(breaks=c(5,10,25,50,100,250,500,1000,2000))+
+  #   #coord_cartesian(ylim=c(5.5,150))+
+  #   stat_summary(geom="point",fun = max,aes(group=variable),shape="_",size=10)+theme_pubr()+
+  #   theme(legend.position = "none",axis.text.x = element_text(angle=45,hjust=1,vjust=1),
+  #         axis.title.x = element_blank())+ylab("RPIQ")+
+  #   annotate(geom = "label",label="Test evaluation",x = 1,y=1,hjust=0,size=5)->test_eval_bar_rpiq
+  # test_eval_bar_rpiq
+  
+  ggsave(plot=test_eval_bar,filename="test_eval_bar.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+         width=8,
+         height=4)
+  
+  
+  
+  
+  ###### compare test and zr eval ####
+  eval_zeitreihe%>%filter(variable%>%str_detect("ratio",negate = T))%>%#mutate(NRMSE_iqr=test.rmse/test.iqr*100)%>%
+    group_by(variable)%>%summarise(NRMSEavg_min=min(nrmseavg))%>%
+    right_join(
+      eval_zeitreihe%>%filter(variable%>%str_detect("ratio",negate = T))#%>%mutate(NRMSE_iqr=test.rmse/test.iqr*100)
+      ,by="variable")%>%
+    left_join(all_test_eval#%>%select(type,set,trans,variable,nrmseavg)%>%
+                #rename(nrmseavg_test=nrmseavg)
+                ,by=c("type","set","trans","variable"),suffix = c("","_test"))%>%
+    
+    ggplot(aes(x=fct_reorder(variable,NRMSEavg_min),
+               y=nrmseavg*100,
+               group=fct_reorder(paste(variable,type,set,trans),nrmseavg*100)))+
+    geom_hline(yintercept = c(10,25,50,75),linetype="dotted")+
+    geom_col(position="dodge",linewidth=1,aes(fill=nrmseavg_test))+
+    scale_y_log10()+
+    coord_cartesian(ylim=c(9,1250))+
+    scale_fill_viridis_c()+
+    stat_summary(geom="point",fun = min,aes(group=variable),shape="_",size=10)+theme_pubr()+
+    theme(legend.position = "none",axis.text.x = element_text(angle=45,hjust=1,vjust=1),
+          axis.title.x = element_blank(),
+          axis.title.y = element_text(
+            angle = 90,
+            hjust = .6,
+            vjust=0
+          ))+
+    ylab(expression("NRMS"*E[avg]*" [%]"))
+  
+  
+  ##### zr split axis ####
+  eval_zeitreihe%>%filter(variable%>%str_detect("ratio",negate = T))%>%#mutate(NRMSE_iqr=test.rmse/test.iqr*100)%>%
+    group_by(variable)%>%summarise(NRMSEavg_min=min(nrmseavg))%>%
+    right_join(
+      eval_zeitreihe%>%filter(variable%>%str_detect("ratio",negate = T))#%>%mutate(NRMSE_iqr=test.rmse/test.iqr*100)
+      ,by="variable")%>%
+    ggplot(aes(x=fct_reorder(variable,NRMSEavg_min),
+               y=nrmseavg*100,
+               group=fct_reorder(paste(variable,type,set,trans),nrmseavg*100)))+
+    geom_hline(yintercept = c(10,25,50,75),linetype="dotted")+
+    geom_col(position="dodge",linewidth=1,aes(fill=variable))+
+    scale_y_continuous(breaks=c(10,25,50,75),expand=c(0,0)) +
+    coord_cartesian(ylim=c(7.5,80))+
+    stat_summary(geom="point",fun = min,aes(group=variable),shape="_",size=10)+theme_pubr()+
+    theme(legend.position = "none",axis.text.x = element_text(angle=45,hjust=1,vjust=1),
+          axis.title.x = element_blank(),
+          axis.title.y = element_text(
+            angle = 90,
+            hjust = .6,
+            vjust=0
+          ))+
+    ylab(expression("NRMS"*E[avg]*" [%]"))->zr_eval_bar1
+  
+  
+  
+  eval_zeitreihe%>%filter(variable%>%str_detect("ratio",negate = T))%>%#mutate(NRMSE_iqr=test.rmse/test.iqr*100)%>%
+    group_by(variable)%>%summarise(NRMSEavg_min=min(nrmseavg))%>%
+    right_join(
+      eval_zeitreihe%>%filter(variable%>%str_detect("ratio",negate = T))#%>%mutate(NRMSE_iqr=test.rmse/test.iqr*100)
+      ,by="variable")%>%
+    ggplot(aes(x=fct_reorder(variable,NRMSEavg_min),
+               y=nrmseavg*100,
+               group=fct_reorder(paste(variable,type,set,trans),nrmseavg*100)))+
+    geom_hline(yintercept = c(100,1000),linetype="dotted")+
+    #geom_hline(yintercept = 0)+
+    geom_col(position="dodge",linewidth=1,aes(fill=variable))+
+    scale_y_continuous(breaks=c(100,1000),expand=c(0,0)) +
+    coord_cartesian(ylim=c(80,1250))+
+    #stat_summary(geom="point",fun = min,aes(group=variable),shape="_",size=10)+
+    theme_pubr()+
+    theme(legend.position = "none",axis.text.x = element_text(angle=45,hjust=1,vjust=1),
+          axis.title.x = element_blank())+
+    theme(
+      axis.text.x = element_blank(),
+      axis.title.y = element_blank(),
+      axis.ticks.x = element_blank(),
+      axis.line.x = element_blank(),
+      plot.margin = margin(0, 0, 0, 0)
+    )+
+    annotate(geom = "text",label="Extended library evaluation",x = 1,y=500,hjust=0,size=5)->zr_eval_bar2
+  
+  
+  zr_eval_bar={zr_eval_bar2 / zr_eval_bar1 + plot_layout(heights = c(.1, .9),guides = "collect") &
+      theme(plot.margin = margin(0, 0, 0, 0))}
+  zr_eval_bar
+  ggsave(plot=zr_eval_bar,filename="zr_eval_bar.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+  width=8,
+  height=4)
+
+
+##### zr with tst best model as highlighted ####
+  {
+    best_candidates%>%select(type,set,trans,variable)%>%mutate(best=1)%>%
+      right_join(eval_zeitreihe)%>%
+      mutate(best=if_else(is.na(best),0,1))%>%mutate(nrmseavg=1/rpiq)->tmp0
+    tmp0%>%
+      filter(variable%>%str_detect("ratio",negate = T))%>%
+      group_by(variable)%>%summarise(NRMSEavg_min=min(nrmseavg))%>%
+      right_join(
+        tmp0%>%filter(variable%>%str_detect("ratio",negate = T))#%>%mutate(NRMSE_iqr=test.rmse/test.iqr*100)
+        ,by="variable")->tmp
+    # zr split axis
+    tmp%>%
+      ggplot(aes(x=fct_reorder(variable,NRMSEavg_min),
+                 y=nrmseavg*100,
+                 group=fct_reorder(paste(variable,type,set,trans),nrmseavg*100)))+
+      geom_hline(yintercept = c(10,25,50,75,100),linetype="dotted")+
+      geom_col(position="dodge",linewidth=1,aes(fill=variable))+
+      geom_col(data=tmp,position="dodge",aes(y=if_else(best==1,nrmseavg*100,0)),fill="red3")+
+      geom_point(data=tmp%>%filter(best==1),shape="_",size=10,col="red3")+
+      scale_y_continuous(breaks=c(10,25,50,75,100),expand=c(0,0)) +
+      coord_cartesian(ylim=c(7.5,120))+
+      stat_summary(geom="point",fun = min,aes(group=variable),shape="_",size=10)+theme_pubr()+
+      theme(legend.position = "none",axis.text.x = element_text(angle=45,hjust=1,vjust=1),
+            axis.title.x = element_blank(),
+            axis.title.y = element_text(
+              angle = 90,
+              hjust = .6,
+              vjust=0
+            ))+
+      ylab(expression("NRMS"*E[avg]*" [%]"))->zr_eval_bar1
+    zr_eval_bar1
+    
+    
+    
+    
+    tmp%>%
+      ggplot(aes(x=fct_reorder(variable,NRMSEavg_min),
+                 y=nrmseavg*100,
+                 group=fct_reorder(paste(variable,type,set,trans),nrmseavg*100)))+
+      geom_hline(yintercept = c(200,1000),linetype="dotted")+
+      #geom_hline(yintercept = 0)+
+      geom_col(position="dodge",linewidth=1,aes(fill=variable))+
+      geom_col(data=tmp,position="dodge",aes(y=if_else(best==1,nrmseavg*100,0)),fill="red3")+
+      # geom_point(data=tmp%>%filter(best==1),shape="_",size=10,col="red3")+
+      scale_y_continuous(breaks=c(200,1000),expand=c(0,0)) +
+      coord_cartesian(ylim=c(120,1250))+
+      #stat_summary(geom="point",fun = min,aes(group=variable),shape="_",size=10)+
+      theme_pubr()+
+      theme(legend.position = "none",axis.text.x = element_text(angle=45,hjust=1,vjust=1),
+            axis.title.x = element_blank())+
+      theme(
+        axis.text.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.line.x = element_blank(),
+        plot.margin = margin(0, 0, 0, 0)
+      )+
+      annotate(geom = "text",label="Extended library evaluation",x = 1,y=500,hjust=0,size=5)->zr_eval_bar2
+    
+    
+    zr_eval_bar_tst={zr_eval_bar2 / zr_eval_bar1 + plot_layout(heights = c(.1, .9),guides = "collect") &
+        theme(plot.margin = margin(0, 0, 0, 0))}
+    zr_eval_bar_tst
+    
+    ggsave(plot=zr_eval_bar_tst,filename="zr_eval_bar_with_tst.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+           width=8,
+           height=4)
+    
+  }
+
+  
+#### rpd combined ####
+  bind_rows(tibble(ds="tst",all_test_eval),
+                   tibble(ds="zr",eval_zeitreihe))%>%filter(!str_detect(variable,"ratio"))%>%
+    
+    mutate(d_type=case_match(type,"pls"~"a","cubist"~"b","mbl"~"c"),
+           group=paste0(variable,d_type))%>%
+    group_by(variable)%>%
+    mutate(max_rpd=max(rpd))%>%
+    ggplot()+
+    
+    # williams 2014 (though some authors are far less rigourous with rpd>2 as very good)
+    geom_rect(data=tibble(
+      ymin=c(-Inf,2,2.5,3,3.5,4),
+      ymax=c(2,2.5,3,3.5,4,Inf),
+      group=c("vp","p","f","g","vg","e"),
+      ),
+      aes(xmin=-Inf,xmax=Inf,ymin=ymin,ymax=ymax,fill=group),alpha=.25)+
+    
+    geom_boxplot(aes(x=fct_reorder(variable,rpd,.desc = T),
+                     y=rpd,
+                     group=paste(variable,ds),
+                     fill=ds
+                   #  group=paste(variable,d_type),
+                 #    fill=d_type
+                 )
+                 )+
+    #geom_point()
+    theme_pubr()+
+    theme(axis.text.x = element_text(angle=90,hjust=1))+
+    scale_y_continuous("RPD",expand=c(0,0))+
+    scale_fill_manual("Quality",breaks=c(#"a","b","c",
+                                  c("vp","p","f","g","vg","e"),"tst","zr"),
+                      labels=c(#"PLS","Cubist","MBL",
+                               "Very Poor (< 2.0)" ,"Poor (2.0 - 2.5)","Fair (2.5 - 3.0)","Good (3.0 - 3-5)", "Very Good (3.5 - 4.0)","Excellent (> 4.0)"
+                               ,"Test set","Extended library"),
+                      values = c(#setNames(colorblind_safe_colors()[2:4],c("a","b","c")),
+                                 unlist(bg_colors),setNames(colorblind_safe_colors()[2:3],c("tst","zr"))))+
+    geom_vline(xintercept = c(1:30)+.5,col="white")+
+    #ggtitle("Testset")+
+    coord_cartesian(ylim = c(0,11.5))+
+    theme(legend.position = "right",
+      panel.grid.major.y = element_line(linetype="dotted",colour = "black"),
+      axis.title.x = element_blank(),
+      axis.text.x = element_text(angle=45,hjust=1))->rpd_comparison
+  
+  
+  ggsave(plot=rpd_comparison+theme(legend.position = "none"),filename="RPD_comp.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 4)
+  # legend
+  ggsave(plot=get_legend(rpd_comparison),filename="RPD_comp_leg.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 4,height = 4)
+
+  
+#### rmse combined ####
+  # RMSE/sd == 1/RPD ... redundant
+  
+  bind_rows(tibble(ds="tst",all_test_eval),
+            tibble(ds="zr",eval_zeitreihe))%>%filter(!str_detect(variable,"ratio"))%>%
+    # mutate(ds=factor(ds,levels = c("tst","zr"),labels=c(1,2)),
+    #        type=factor(type,levels = c("pls","cubist","mbl","svm"),labels=c(1:4)))%>%
+    
+    mutate(d_type=case_match(type,"pls"~"a","cubist"~"b","mbl"~"c"),
+           group=paste0(variable,d_type))%>%
+    group_by(variable)%>%
+    mutate(rmse=rmse/sdev,min_rmse=min(rmse))%>%#---------------------------------change to min if minimize goal
+    ggplot()+
+    
+    
+    # Wadoux and Minasny, 2024, McBride 2005 (combining thresholds)
+    # geom_rect(data=tibble(
+    #   ymin=c(-1,.65,.8,.9,.95,.99),
+    #   ymax=c(.65,.8,.9,.95,.99,1),
+    #   group=c("vp","p","f","g","vg","e"),
+    # ),
+    # aes(xmin=-Inf,xmax=Inf,ymin=ymin,ymax=ymax,fill=group),alpha=.25)+
+    # 
+    geom_boxplot(aes(x=fct_reorder(variable,min_rmse,.desc = F),
+                     y=rmse,
+                     group=paste(variable,ds),
+                     fill=ds
+                     #  group=paste(variable,d_type),
+                     #    fill=d_type
+    )
+    )+
+    #geom_point()
+    theme_pubr()+
+    theme(axis.text.x = element_text(angle=90,hjust=1))+
+    geom_point(
+      data=
+      bind_rows(tibble(ds="tst",all_test_eval),
+                tibble(ds="zr",eval_zeitreihe))%>%filter(!str_detect(variable,"ratio"))%>%
+        # mutate(ds=factor(ds,levels = c("tst","zr"),labels=c(1,2)),
+        #        type=factor(type,levels = c("pls","cubist","mbl","svm"),labels=c(1:4)))%>%
+        
+        mutate(d_type=case_match(type,"pls"~"a","cubist"~"b","mbl"~"c"),
+               group=paste0(variable,d_type))%>%
+        group_by(variable)%>%
+        mutate(rmse=rmse/sdev,min_rmse=min(rmse))%>%filter(rmse>5),
+      aes(x=fct_reorder(variable,min_rmse,.desc = F),
+                   y=rmse,
+                   group=paste(variable,ds)),position = position_nudge(x=.2,y=-2.2),
+      shape="*",size=8)+
+    scale_y_continuous("NRMSEsd",expand=c(0,0),limits=c(0,6),oob = scales::squish)+
+    scale_fill_manual("Quality",
+                      breaks=c(#"a","b","c",
+      c("vp","p","f","g","vg","e"),"tst","zr","o","no"),
+      
+      labels=c(#"PLS","Cubist","MBL",
+        "Very Poor" ,"Poor","Fair","Good", "Very Good","Excellent"
+        ,"Test set","Extended library","o","no"),
+      values = c(#setNames(colorblind_safe_colors()[2:4],c("a","b","c")),
+        unlist(bg_colors),setNames(colorblind_safe_colors()[2:3],c("tst","zr")),
+        setNames(list(rgb(1,0,0,1),rgb(1,1,1,0)),c("o","no"))))+
+    geom_vline(xintercept = c(1:30)+.5,col="white")+
+    ggtitle("Testset")+
+    coord_cartesian(ylim = c(0,3.9))+
+    theme(legend.position = "right",
+          panel.grid.major.y = element_line(linetype="dotted",colour = "black"),
+          axis.title.x = element_blank(),
+          axis.text.x = element_text(angle=45,hjust=1))->rmse_comparison
+  rmse_comparison
+  
+  # ggsave(plot=R2_comparison+theme(legend.position = "none"),filename="linccc_comp.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 4)
+  # # legend
+  # ggsave(plot=get_legend(R2_comparison),filename="R2_comp_leg.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 4,height = 4)
+  # 
+  
+  
+#### R2 combined ####
+  
+  
+  bind_rows(tibble(ds="tst",all_test_eval),
+            tibble(ds="zr",eval_zeitreihe))%>%filter(!str_detect(variable,"ratio"))%>%
+    # mutate(ds=factor(ds,levels = c("tst","zr"),labels=c(1,2)),
+    #        type=factor(type,levels = c("pls","cubist","mbl","svm"),labels=c(1:4)))%>%
+    
+    mutate(d_type=case_match(type,"pls"~"a","cubist"~"b","mbl"~"c"),
+           group=paste0(variable,d_type))%>%
+    group_by(variable)%>%
+    mutate(max_R2=max(R2))%>%#---------------------------------change to min if minimize goal
+    ggplot()+
+    
+    
+    # Wadoux and Minasny, 2024, McBride 2005 (combining thresholds)
+    geom_rect(data=tibble(
+      ymin=c(-1,.65,.8,.9,.95,.99),
+      ymax=c(.65,.8,.9,.95,.99,1),
+      group=c("vp","p","f","g","vg","e"),
+    ),
+    aes(xmin=-Inf,xmax=Inf,ymin=ymin,ymax=ymax,fill=group),alpha=.25)+
+    
+    geom_boxplot(aes(x=fct_reorder(variable,max_R2,.desc = T),
+                     y=R2,
+                     group=paste(variable,ds),
+                     fill=ds
+                     #  group=paste(variable,d_type),
+                     #    fill=d_type
+    )
+    )+
+    #geom_point()
+    theme_pubr()+
+    theme(axis.text.x = element_text(angle=90,hjust=1))+
+    scale_y_continuous("R2",expand=c(0,0))+
+    scale_fill_manual("Quality",breaks=c(#"a","b","c",
+      c("vp","p","f","g","vg","e"),"tst","zr"),
+      labels=c(#"PLS","Cubist","MBL",
+        "Very Poor" ,"Poor","Fair","Good", "Very Good","Excellent"
+        ,"Test set","Extended library"),
+      values = c(#setNames(colorblind_safe_colors()[2:4],c("a","b","c")),
+        unlist(bg_colors),setNames(colorblind_safe_colors()[2:3],c("tst","zr"))))+
+    geom_vline(xintercept = c(1:30)+.5,col="white")+
+    #ggtitle("Testset")+
+    coord_cartesian(ylim = c(-1,1))+
+    theme(legend.position = "right",
+          panel.grid.major.y = element_line(linetype="dotted",colour = "black"),
+          axis.title.x = element_blank(),
+          axis.text.x = element_text(angle=45,hjust=1))->R2_comparison
+  
+  # 
+   ggsave(plot=R2_comparison+theme(legend.position = "none"),filename="linccc_comp.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 4)
+  # # legend
+   ggsave(plot=get_legend(R2_comparison),filename="R2_comp_leg.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 4,height = 4)
+  # 
+  
+#### linCCC combined ####
+  
+  
+  bind_rows(tibble(ds="tst",all_test_eval),
+            tibble(ds="zr",eval_zeitreihe))%>%filter(!str_detect(variable,"ratio"))%>%
+    # mutate(ds=factor(ds,levels = c("tst","zr"),labels=c(1,2)),
+    #        type=factor(type,levels = c("pls","cubist","mbl","svm"),labels=c(1:4)))%>%
+    
+    mutate(d_type=case_match(type,"pls"~"a","cubist"~"b","mbl"~"c"),
+           group=paste0(variable,d_type))%>%
+    group_by(variable)%>%
+    mutate(max_linsCCC=max(linsCCC))%>%#---------------------------------change to min if minimize goal
+    ggplot()+
+    
+    
+    # Wadoux and Minasny, 2024, McBride 2005 (combining thresholds)
+    geom_rect(data=tibble(
+      ymin=c(-1,.65,.8,.9,.95,.99),
+      ymax=c(.65,.8,.9,.95,.99,1),
+      group=c("vp","p","f","g","vg","e"),
+    ),
+    aes(xmin=-Inf,xmax=Inf,ymin=ymin,ymax=ymax,fill=group),alpha=.25)+
+    
+    geom_boxplot(aes(x=fct_reorder(variable,max_linsCCC,.desc = T),
+                     y=linsCCC,
+                     group=paste(variable,ds),
+                     fill=ds
+                     #  group=paste(variable,d_type),
+                     #    fill=d_type
+    )
+    )+
+    #geom_point()
+    theme_pubr()+
+    theme(axis.text.x = element_text(angle=90,hjust=1))+
+    scale_y_continuous("Lin's CCC",expand=c(0,0))+
+    scale_fill_manual("Quality",breaks=c(#"a","b","c",
+      c("vp","p","f","g","vg","e"),"tst","zr"),
+      labels=c(#"PLS","Cubist","MBL",
+        "Very Poor (< 0.65)" ,"Poor  (0.65 - 0.80)","Fair (0.80 - 0.90)","Good (0.90 0.95)", "Very Good (0.95 - 0.99)","Excellent (> 0.99)"
+        ,"Test set","Extended library"),
+      values = c(#setNames(colorblind_safe_colors()[2:4],c("a","b","c")),
+        unlist(bg_colors),setNames(colorblind_safe_colors()[2:3],c("tst","zr"))))+
+     geom_vline(xintercept = c(1:30)+.5,col="white")+
+    #ggtitle("Testset")+
+    coord_cartesian(ylim = c(0,1))+
+    theme(legend.position = "right",
+          panel.grid.major.y = element_line(linetype="dotted",colour = "black"),
+          axis.title.x = element_blank(),
+          axis.text.x = element_text(angle=45,hjust=1))->linccc_comparison
+
+  
+  ggsave(plot=linccc_comparison+theme(legend.position = "none"),filename="linccc_comp.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 4)
+  # legend
+  ggsave(plot=get_legend(linccc_comparison),filename="linccc_comp_leg.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 4,height = 4)
+  
+  
+  
+#### bias combined ####
+  # ! NOTE avg-normalised, as variable unit dependant
+  
+  bind_rows(tibble(ds="tst",all_test_eval),
+            tibble(ds="zr",eval_zeitreihe))%>%filter(!str_detect(variable,"ratio"))%>%
+    # mutate(ds=factor(ds,levels = c("tst","zr"),labels=c(1,2)),
+    #        type=factor(type,levels = c("pls","cubist","mbl","svm"),labels=c(1:4)))%>%
+    
+    mutate(d_type=case_match(type,"pls"~"a","cubist"~"b","mbl"~"c"),
+           group=paste0(variable,d_type))%>%
+    group_by(variable)%>%
+    mutate(bias=bias/sdev,min_bias=min(bias))%>%#---------------------------------change to min if minimize goal
+    ggplot()+
+    
+    
+    geom_rect(data=tibble(
+      ymin=c(-Inf,-.5,-.3,-.2,-.1,-.05,.05,.1,.2,.3,.5),
+      ymax=c(-.5,-.3,-.2,-.1,-.05,.05,.1,.2,.3,.5,Inf),
+      group=c("vp","p","f","g","vg","e","vg","g","f","p","vp"),
+    ),
+    aes(xmin=-Inf,xmax=Inf,ymin=ymin,ymax=ymax,fill=group),alpha=.25)+
+    
+    geom_boxplot(aes(x=fct_reorder(variable,min_bias,.desc = T),
+                     y=bias,
+                     group=paste(variable,ds),
+                     fill=ds
+                     #  group=paste(variable,d_type),
+                     #    fill=d_type
+    )
+    )+
+    #geom_point()
+    theme_pubr()+
+    theme(axis.text.x = element_text(angle=90,hjust=1))+
+    scale_y_continuous("Standardised Bias",expand=c(0,0))+
+    scale_fill_manual("Quality (|bias|)",breaks=c(#"a","b","c",
+      c("vp","p","f","g","vg","e"),"tst","zr"),
+      labels=c(#"PLS","Cubist","MBL",
+        "Very Poor (> 0.5)" ,"Poor (0.3 - 0.5)","Fair (0.2 - 0.3)","Good (0.1 - 0.2)", "Very Good (0.05 - 0.1)","Excellent (< 0.05)"
+        ,"Test set","Extended library"),
+      values = c(#setNames(colorblind_safe_colors()[2:4],c("a","b","c")),
+        unlist(bg_colors),setNames(colorblind_safe_colors()[2:3],c("tst","zr"))))+
+    geom_vline(xintercept = c(1:30)+.5,col="white")+
+    #ggtitle("Testset")+
+    coord_cartesian(ylim = c(-1.7,1.5))+
+    theme(legend.position = "right",
+          panel.grid.major.y = element_line(linetype="dotted",colour = "black"),
+          axis.title.x = element_blank(),
+          axis.text.x = element_text(angle=45,hjust=1))->bias_comparison
+  
+  
+  ggsave(plot=bias_comparison+theme(legend.position = "none"),filename="bias_comp.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 4)
+  # legend
+  ggsave(plot=get_legend(bias_comparison),filename="bias_comp_leg.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 4,height = 4)
+  
+  
+  
+  
+#### slope combined ####
+  # ! NOTE avg-normalised, as variable unit dependant
+  
+  bind_rows(tibble(ds="tst",all_test_eval),
+            tibble(ds="zr",eval_zeitreihe))%>%filter(!str_detect(variable,"ratio"))%>%
+    # mutate(ds=factor(ds,levels = c("tst","zr"),labels=c(1,2)),
+    #        type=factor(type,levels = c("pls","cubist","mbl","svm"),labels=c(1:4)))%>%
+    
+    mutate(d_type=case_match(type,"pls"~"a","cubist"~"b","mbl"~"c"),
+           group=paste0(variable,d_type))%>%
+    group_by(variable)%>%
+    mutate(min_b=abs(b-1))%>%#---------------------------------change to min if minimize goal
+    ggplot()+
+    
+    
+    geom_rect(data=tibble(
+      ymin=c(0,.75, .85, .9, .95, .98, 1.02, 1.05, 1.1, 1.2,1.33),
+      ymax=c(.75,.85, .9, .95, .98, 1.02, 1.05, 1.1, 1.2, 1.33,Inf),
+      group=c("vp","p","f","g","vg","e","vg","g","f","p","vp"),
+    ),
+    aes(xmin=-Inf,xmax=Inf,ymin=ymin,ymax=ymax,fill=group),alpha=.25)+
+    
+    geom_boxplot(aes(x=fct_reorder(variable,min_b,.desc = F),
+                     y=b,
+                     group=paste(variable,ds),
+                     fill=ds
+                     #  group=paste(variable,d_type),
+                     #    fill=d_type
+    )
+    )+
+    #geom_point()
+    theme_pubr()+
+    theme(axis.text.x = element_text(angle=90,hjust=1))+
+    scale_y_continuous("Slope offset",expand=c(0,0))+
+    scale_fill_manual("Quality",breaks=c(#"a","b","c",
+      c("vp","p","f","g","vg","e"),"tst","zr"),
+      labels=c(#"PLS","Cubist","MBL",
+        "Very Poor" ,"Poor","Fair","Good", "Very Good","Excellent"
+        ,"Test set","Extended library"),
+      values = c(#setNames(colorblind_safe_colors()[2:4],c("a","b","c")),
+        unlist(bg_colors),setNames(colorblind_safe_colors()[2:3],c("tst","zr"))))+
+    geom_vline(xintercept = c(1:30)+.5,col="white")+
+    #ggtitle("Testset")+
+    coord_cartesian(ylim = c(0,2.2))+
+    theme(legend.position = "right",
+          panel.grid.major.y = element_line(linetype="dotted",colour = "black"),
+          axis.title.x = element_blank(),
+          axis.text.x = element_text(angle=45,hjust=1))#->b_comparison
+  
+  
+  ggsave(plot=b_comparison+theme(legend.position = "none"),filename="b_comp.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 4)
+  # legend
+  ggsave(plot=get_legend(b_comparison),filename="b_comp_leg.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 4,height = 4)
+  
+  
+## processing effect ####
 all_test_eval%>%filter(!str_detect(variable,"ratio"))%>%
   
   mutate(d_type=case_match(type,"pls"~"a","cubist"~"b","mbl"~"c"),
@@ -2827,13 +3736,579 @@ eval_zeitreihe%>%filter(!str_detect(variable,"ratio"))%>%
 
 
 
+## GT300 model validation ####
+
+### Load GT300 spc ####
+if(F){gt300_spc=OPUSraw_to_Preprocessed(folder = paste0(data_dir,"/Sean_Environment/BDF/BDF-SSL/1_data/1_raw_scans/2_scans_GT300/"),
+                        save_location = paste0(data_dir,"/Sean_Environment/BDF_dataset/spc/gt300"),
+                        save = T,
+                        save_raw = T,
+                        return = T,
+                        reload=F
+                        )
+}else{
+#reload
+  gt300_spc=readRDS(paste0(data_dir,"/Sean_Environment/BDF_dataset/spc/gt300/spc_data"))
+  }
+# !!! NOTE: spc_range is slightly different for non-rs4 (i.e. bl 7489...411 vs 7490...410)
+
+gt300_data=left_join(gt300_spc,all_data,by=c("sample_id"="LabelEvent"),suffix = c(".gt300",".mm400"))%>%
+  rename(LabelEvent=sample_id)
+
+### plt spc ####
+
+i="spc_sg_snv_rs4.gt300"
+gt300_data%>%select(all_of(c("LabelEvent",i)))%>%
+  mutate(across(all_of(i),as_tibble))%>%
+  unnest(cols=all_of(i))%>%
+  pivot_longer(cols=colnames(gt300_data[[i]]))%>%
+  mutate(name=as.numeric(name))%>%
+  summarise_metrics(grouping_variables = "name",
+                    variables = "value")%>%
+  mutate(mill="GT300")->gt300_spc_summary
+
+i="spc_sg_snv_rs4.mm400"
+gt300_data%>%select(all_of(c("LabelEvent",i)))%>%
+  mutate(across(all_of(i),as_tibble))%>%
+  unnest(cols=all_of(i))%>%
+  pivot_longer(cols=colnames(gt300_data[[i]]))%>%
+  mutate(name=as.numeric(name))%>%
+  summarise_metrics(grouping_variables = "name",
+                    variables = "value")%>%
+  mutate(mill="MM400")->mm400_spc_summary
+
+
+mm400_spc_summary%>%filter(name>=425&name<=7475)%>% #crop ends
+  ggplot(aes(x=name,col=mill,fill=mill))+
+  
+  geom_ribbon(aes(ymin=min,ymax=max),alpha=.1,linetype="dotted")+
+  geom_ribbon(aes(ymin=q25,ymax=q75),alpha=.2,linetype="dashed")+
+  geom_line(aes(y=median))+
+  
+  geom_ribbon(data=gt300_spc_summary%>%filter(name>=425&name<=7475),
+              aes(ymin=min,ymax=max),alpha=.1,linetype="dotted")+
+  geom_ribbon(data=gt300_spc_summary%>%filter(name>=425&name<=7475),
+              aes(ymin=q25,ymax=q75),alpha=.2,linetype="dashed")+
+  geom_line(data=gt300_spc_summary%>%filter(name>=425&name<=7475),
+            aes(y=median))+
+  
+  
+  #geom_line(aes(y=mean))+
+  #ggtitle(i_title)+
+  ylab("Absorbance")+
+  scale_x_log10(expression("Wavenumber [c"*m^-1*"]"))+
+  scale_color_manual("Used mill",breaks = c("GT300","MM400"),values=colorblind_safe_colors()[c(3,7)])+
+  scale_fill_manual("Used mill",breaks = c("GT300","MM400"),values=colorblind_safe_colors()[c(3,7)])+
+  theme_pubr()+
+  theme(#axis.title = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())->spc_gt300_mm400
+
+
+
+ggsave(plot=spc_gt300_mm400+theme(legend.position = "none"),filename="spc_gt300_mm400.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 4)
+# legend
+ggsave(plot=get_legend(spc_gt300_mm400),filename="spc_gt300_mm400_leg.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 4,height = 4)
+
+
+
+### pca ####
+#### using full pca
+gt300_pca=predict(pc,gt300_data$spc_sg_snv_rs4.gt300)
+
+pc_combined=bind_rows(
+  tibble(LabelEvent=gt300_data$LabelEvent,
+         mill="GT300",
+         gt300_data%>%select(contains("["),pH_CaCl2),
+         gt300_pca$scores%>%as_tibble),
+  left_join(
+    tibble(LabelEvent=gt300_data$LabelEvent,
+           mill="MM400",
+         gt300_data%>%select(contains("["),pH_CaCl2)),
+         pc_merge%>%select(LabelEvent,contains("Comp"))
+    )
+  )
+
+
+
+pc_combined%>%
+  ggplot(aes(x = `Comp 1`,y = `Comp 2`,col=mill))+
+  geom_point()+
+  geom_line(aes(group=LabelEvent))
+
+pc_combined%>%
+  ggplot(aes(x = `Comp 3`,y = `Comp 4`,col=mill))+
+  geom_point()+
+  geom_line(aes(group=LabelEvent))
+
+
+
+
+#### using subset only (resemble) ####
+
+  
+pc_mill <- pc_projection(
+  Xr = gt300_data$spc_sg_snv_rs4.mm400,
+  Xu = gt300_data$spc_sg_snv_rs4.gt300,
+  pc_selection = list("cumvar", .99),
+  method = "pca",
+  center = TRUE,
+  scale = FALSE
+)
+
+
+
+
+
+### models ####
+GT300_eval=readRDS("//zfs1.hrz.tu-freiberg.de/fak3ibf/Hydropedo/Sean_Environment/R_main/models/2024 models/GT300_testing/all_evaluation")
+
+
+### redo obspred plots ####
+
+GT300_val_plotter=function(Obs_pred_eval,
+                           type_="pls",
+                           set_="spc_sg_snv_rs4",
+                           trans_="log1p",
+                           variable_="TOC"){
+  
+  mm400_data=Obs_pred_eval$Obs_Pred[[paste0(type_,"_",set_,"-",trans_,"-",variable_)]]$test
+  gt300_data=Obs_pred_eval$Obs_Pred[[paste0(type_,"_",set_,"-",trans_,"-",variable_)]]$gt300
+  eval=GT300_eval$evaluation%>%filter(type==type_,
+                                            set==set_,
+                                            trans==trans_,
+                                            variable==variable_)
+  #print(eval) debug
+  
+  mm400_label=paste0("RMSE: ",signif(eval$test.rmse,3),"\n",
+                     "R2: ",signif(eval$test.R2,3),"\n",
+                     "RPD: ",signif(eval$test.rpd,3)
+                     )
+                     
+  gt300_label=paste0("RMSE: ",signif(eval$gt300.rmse,3),"\t\t\n",
+                     "R2: ",signif(eval$gt300.R2,3),"\t\t\n",
+                     "RPD: ",signif(eval$gt300.rpd,3),"\t\t"
+  )
+  
+  limits=c(min(mm400_data,gt300_data),max(mm400_data,gt300_data))
+  
+  ggplot(mapping=aes(x=obs,y=pred))+
+    geom_abline(slope = 1,linetype="dotted")+
+    geom_point(data = mm400_data,shape=21)+
+    geom_point(data = gt300_data,shape=4,col="red3")+
+    scale_x_continuous("Observed",limits=limits)+
+    scale_y_continuous("Predicted",limits=limits)+
+    coord_fixed()+
+    annotate(geom="label",
+             x = limits[1], 
+             y = limits[2], 
+             label = mm400_label, 
+             hjust = 0, vjust = 1)+
+    
+    annotate(geom="label",
+             x = limits[2], 
+             y = limits[1], 
+             label = gt300_label,
+             col="red3",
+             hjust = "inward", vjust = 0)+
+    ggtitle(paste0(type_,"_",set_,"-",trans_,"-",variable_))+
+    theme_pubr()+
+    theme(title = element_text(size=10))
+  
+}
+
+for (i in names(GT300_eval$plots)){
+
+  GT300_eval$plots[[i]]=GT300_val_plotter(GT300_eval,
+                                          type=str_split_fixed(i,"_",2)[1],
+                                          set=str_split_fixed(str_split_fixed(i,"_",2)[2],"-",2)[1],
+                                          trans=str_split_fixed(i,"-",3)[2],
+                                          variable=str_split_fixed(i,"-",3)[3]
+                                          )
+}
+
+### obspred plots ####
+best_test.rmse=GT300_eval$evaluation%>%filter(variable%in%names(variable_lookup))%>%
+  group_by(trans)%>%filter(test.rmse==min(test.rmse))%>%transmute(mod=paste0(type,"_",set,"-",trans,"-",variable))%>%pull(mod)
+ggarrange(plotlist = GT300_eval$plots[best_test.rmse])%>%
+  ggsave(filename="mm400_gt300_obspred.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 20,height = 20)
+
+
+
+ggarrange(plotlist=GT300_eval$plots[c("pls_spc_sg_snv_rs4-log1p-TOC",
+                                      "pls_spc_sg_snv_rs4-log1p-T",
+                                      "pls_spc_sg_snv_rs4-log1p-Fe_t",
+                                      
+                                      "cubist_spc_sg_snv_rs4-log1p-TOC",
+                                      "cubist_spc_sg_snv_rs4-log1p-T",
+                                      "cubist_spc_sg_snv_rs4-log1p-Fe_t",
+                                      
+                                      "mbl_spc_sg_snv_rs4-log1p-TOC",
+                                      "mbl_spc_sg_snv_rs4-log1p-T",
+                                      "mbl_spc_sg_snv_rs4-log1p-Fe_t",
+                                      
+                                      "svm_spc_sg_snv_rs4-log1p-TOC",
+                                      "svm_spc_sg_snv_rs4-log1p-Fe_t",
+                                      "svm_spc_sg_snv_rs4-log1p-T"
+                                      )],
+          ncol=3,nrow=4)%>%
+  ggsave(filename="mm400_gt300_obspred_select.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 12,height = 16)
+
+
+
+#### generalised ####
+##### lin ccc ####
+var_="linsCCC"
+
+GT300_eval$evaluation%>%mutate(test.nrmseavg=test.rmse/test.mean*100,gt300.nrmseavg=gt300.rmse/gt300.mean*100)%>%
+  pivot_longer(cols = c(paste("test",var_,sep="."),paste("gt300",var_,sep=".")),values_to = "value",names_to = "ds")%>%
+  mutate(ds=str_remove(ds,pattern = paste0(".",var_))%>%
+           factor(levels = c("test","gt300"),labels=c(1,2)),
+         type=factor(type,levels = c("pls","cubist","mbl","svm"),labels=c(1:4)))%>%
+  # fair comparison with main initial models
+  filter(variable%in%names(variable_lookup))%>%
+  ggplot()+
+  # Wadoux and Minasny, 2024, McBride 2005 (combining thresholds)
+  geom_rect(data=tibble(
+    ymin=c(-1,.65,.8,.9,.95,.99),
+    ymax=c(.65,.8,.9,.95,.99,1),
+    group=c("vp","p","f","g","vg","e"),
+  ),
+  aes(xmin=-Inf,xmax=Inf,ymin=ymin,ymax=ymax,fill=group),alpha=.25)+
+  
+  geom_boxplot(aes(x=fct_reorder(type,value,.desc = T),
+                   y=value,
+                   group=paste(type,ds),
+                   fill=ds
+  )
+  )+
+  #geom_point()
+  theme_pubr()+
+  theme(axis.text.x = element_text(angle=90,hjust=1))+
+  scale_x_manual(values=c(1:4),labels = c("PLS","Cubist","MBL","SVM"))+
+  scale_y_continuous("Lin's CCC",expand = c(0,0))+
+  coord_cartesian(ylim = c(0,1))+
+  scale_fill_manual("Quality",breaks=c(#"a","b","c",
+    c("vp","p","f","g","vg","e"),1,2),#"test","gt300"),
+    labels=c(#"PLS","Cubist","MBL",
+      "Very Poor (< 0.65)" ,"Poor  (0.65 - 0.80)","Fair (0.80 - 0.90)","Good (0.90 0.95)", "Very Good (0.95 - 0.99)","Excellent (> 0.99)"
+      ,"MM400","GT300"),
+    values = c(#setNames(colorblind_safe_colors()[2:4],c("a","b","c")),
+      unlist(bg_colors),setNames(colorblind_safe_colors()[c(7,3)],c(1,2))))+#"test","gt300"))))+
+  theme(legend.position = "right",
+        panel.grid.major.y = element_line(linetype="dotted",colour = "black"),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle=45,hjust=1))->mm400_gt300_lin_30var
+
+
+ggsave(plot=mm400_gt300_lin_30var
+       # +theme(legend.position = "none")
+       ,filename="mm400_gt300_lin_30var.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 6,height = 4)
+# legend
+ggsave(plot=get_legend(mm400_gt300_lin_30var),filename="mm400_gt300_lin_30var_legend.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 4,height = 4)
+
+#all variables lin
+{
+GT300_eval$evaluation%>%mutate(test.nrmseavg=test.rmse/test.mean*100,gt300.nrmseavg=gt300.rmse/gt300.mean*100)%>%
+  pivot_longer(cols = c(paste("test",var_,sep="."),paste("gt300",var_,sep=".")),values_to = "value",names_to = "ds")%>%
+  mutate(ds=str_remove(ds,pattern = paste0(".",var_))%>%
+           factor(levels = c("test","gt300"),labels=c(1,2)),
+         type=factor(type,levels = c("pls","cubist","mbl","svm"),labels=c(1:4)))%>%
+  # fair comparison with main initial models
+  #filter(variable%in%names(variable_lookup))%>%
+  ggplot()+
+  # Wadoux and Minasny, 2024, McBride 2005 (combining thresholds)
+  geom_rect(data=tibble(
+    ymin=c(-1,.65,.8,.9,.95,.99),
+    ymax=c(.65,.8,.9,.95,.99,1),
+    group=c("vp","p","f","g","vg","e"),
+  ),
+  aes(xmin=-Inf,xmax=Inf,ymin=ymin,ymax=ymax,fill=group),alpha=.25)+
+  
+  geom_boxplot(aes(x=fct_reorder(type,value,.desc = T),
+                   y=value,
+                   group=paste(type,ds),
+                   fill=ds
+  )
+  )+
+  #geom_point()
+  theme_pubr()+
+  theme(axis.text.x = element_text(angle=90,hjust=1))+
+  scale_x_manual(values=c(1:4),labels = c("PLS","Cubist","MBL","SVM"))+
+  scale_y_continuous("Lin's CCC")+
+    scale_fill_manual("Quality",breaks=c(#"a","b","c",
+      c("vp","p","f","g","vg","e"),1,2),#"test","gt300"),
+      labels=c(#"PLS","Cubist","MBL",
+        "Very Poor (< 0.65)" ,"Poor  (0.65 - 0.80)","Fair (0.80 - 0.90)","Good (0.90 0.95)", "Very Good (0.95 - 0.99)","Excellent (> 0.99)"
+        ,"MM400","GT300"),
+      values = c(#setNames(colorblind_safe_colors()[2:4],c("a","b","c")),
+        unlist(bg_colors),setNames(colorblind_safe_colors()[c(7,3)],c(1,2))))+#"test","gt300"))))+
+    theme(legend.position = "right",
+          panel.grid.major.y = element_blank(),
+          panel.grid.minor.y = element_line(linetype="dotted",colour = "black"),
+          axis.title.x = element_blank(),
+        axis.text.x = element_text(angle=45,hjust=1))->mm400_gt300_lin_allvar
+}
+
+##### rpd ####
+var_="rpd"
+
+GT300_eval$evaluation%>%mutate(test.nrmseavg=test.rmse/test.mean*100,gt300.nrmseavg=gt300.rmse/gt300.mean*100)%>%
+  pivot_longer(cols = c(paste("test",var_,sep="."),paste("gt300",var_,sep=".")),values_to = "value",names_to = "ds")%>%
+  mutate(ds=str_remove(ds,pattern = paste0(".",var_))%>%
+           factor(levels = c("test","gt300"),labels=c(1,2)),
+         type=factor(type,levels = c("pls","cubist","mbl","svm"),labels=c(1:4)))%>%
+  # fair comparison with main initial models
+  filter(variable%in%names(variable_lookup))%>%
+  ggplot()+
+  # williams 2014 (though some authors are far less rigourous with rpd>2 as very good)
+  geom_rect(data=tibble(
+    ymin=c(-Inf,2,2.5,3,3.5,4),
+    ymax=c(2,2.5,3,3.5,4,Inf),
+    group=c("vp","p","f","g","vg","e"),
+  ),
+  aes(xmin=-Inf,xmax=Inf,ymin=ymin,ymax=ymax,fill=group),alpha=.25)+
+  
+  geom_boxplot(aes(x=fct_reorder(type,value,.desc = T),
+                   y=value,
+                   group=paste(type,ds),
+                   fill=ds
+  )
+  )+
+  #geom_point()
+  theme_pubr()+
+  theme(axis.text.x = element_text(angle=90,hjust=1))+
+  scale_x_manual(values=c(1:4),labels = c("PLS","Cubist","MBL","SVM"))+
+  scale_y_continuous("RPD",expand = c(0,0))+
+  coord_cartesian(ylim = c(0,7.8))+
+  scale_fill_manual("Quality",breaks=c(#"a","b","c",
+    c("vp","p","f","g","vg","e"),1,2),#"test","gt300"),
+    labels=c(#"PLS","Cubist","MBL",
+      "Very Poor (< 2.0)" ,"Poor (2.0 - 2.5)","Fair (2.5 - 3.0)","Good (3.0 - 3-5)", "Very Good (3.5 - 4.0)","Excellent (> 4.0)"
+      ,"MM400","GT300"),
+    values = c(#setNames(colorblind_safe_colors()[2:4],c("a","b","c")),
+      unlist(bg_colors),setNames(colorblind_safe_colors()[c(7,3)],c(1,2))))+#"test","gt300"))))+
+  theme(legend.position = "right",
+        panel.grid.major.y =  element_line(linetype="dotted",colour = "black"),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle=45,hjust=1))->mm400_gt300_rpd_30var
+
+
+ggsave(plot=mm400_gt300_rpd_30var
+       # +theme(legend.position = "none")
+       ,filename="mm400_gt300_rpd_30var.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 6,height = 4)
+# legend
+ggsave(plot=get_legend(mm400_gt300_rpd_30var),filename="mm400_gt300_rpd_30var_legend.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 4,height = 4)
+
+
+
+# nrmse ####
+
+
+
+##### rpd ####
+var_="nrmseavg"
+
+GT300_eval$evaluation%>%mutate(test.nrmseavg=test.rmse/test.mean*100,gt300.nrmseavg=gt300.rmse/gt300.mean*100)%>%
+  pivot_longer(cols = c(paste("test",var_,sep="."),paste("gt300",var_,sep=".")),values_to = "value",names_to = "ds")%>%
+  mutate(ds=str_remove(ds,pattern = paste0(".",var_))%>%
+           factor(levels = c("test","gt300"),labels=c(1,2)),
+         type=factor(type,levels = c("pls","cubist","mbl","svm"),labels=c(1:4)))%>%
+  # fair comparison with main initial models
+  filter(variable%in%names(variable_lookup))%>%
+  ggplot()+
+  # williams 2014 (though some authors are far less rigourous with rpd>2 as very good)
+  geom_rect(data=tibble(
+    ymin=c(Inf,100,50,25,10,5),
+    ymax=c(100,50,25,10,5,0),
+    group=c("vp","p","f","g","vg","e"),
+  ),
+  aes(xmin=-Inf,xmax=Inf,ymin=ymin,ymax=ymax,fill=group),alpha=.25)+
+  
+  geom_boxplot(aes(x=fct_reorder(type,value,.desc = T),
+                   y=value,
+                   group=paste(type,ds),
+                   fill=ds
+  )
+  )+
+  #geom_point()
+  theme_pubr()+
+  theme(axis.text.x = element_text(angle=90,hjust=1))+
+  scale_x_manual(values=c(1:4),labels = c("PLS","Cubist","MBL","SVM"))+
+  scale_y_log10("NRMSEavg",expand = c(0,0))+
+  #coord_cartesian(ylim = c(0,7.8))+
+  scale_fill_manual("Quality",breaks=c(#"a","b","c",
+    c("vp","p","f","g","vg","e"),1,2),#"test","gt300"),
+    labels=c(#"PLS","Cubist","MBL",
+      "Very Poor (< 2.0)" ,"Poor (2.0 - 2.5)","Fair (2.5 - 3.0)","Good (3.0 - 3-5)", "Very Good (3.5 - 4.0)","Excellent (> 4.0)"
+      ,"MM400","GT300"),
+    values = c(#setNames(colorblind_safe_colors()[2:4],c("a","b","c")),
+      unlist(bg_colors),setNames(colorblind_safe_colors()[c(7,3)],c(1,2))))+#"test","gt300"))))+
+  theme(legend.position = "right",
+        panel.grid.major.y =  element_line(linetype="dotted",colour = "black"),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle=45,hjust=1))->mm400_gt300_nrmse_30var
+
+
+ggsave(plot=mm400_gt300_nrmse_30var
+       # +theme(legend.position = "none")
+       ,filename="mm400_gt300_nrmse_30var.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 6,height = 4)
+# legend
+ggsave(plot=get_legend(mm400_gt300_nrmse_30var),filename="mm400_gt300_nrmse_30var_legend.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 4,height = 4)
+
+
+### stat table comparison ####
+
+
+#all
+GT300_eval$evaluation%>%filter(variable%in%names(variable_lookup))%>%
+  #group_by(type)%>%
+  summarise(
+    p_rpd=wilcox.test(test.rpd,gt300.rpd,paired=T)[["p.value"]],
+    p_rmse=wilcox.test(test.rmse,gt300.rmse,paired=T)[["p.value"]],
+    p_lin=wilcox.test(test.linsCCC,gt300.linsCCC,paired=T)[["p.value"]],
+    n=length(test.linsCCC)
+  )%>%view
+
+
+#for model types
+GT300_eval$evaluation%>%filter(variable%in%names(variable_lookup))%>%
+  group_by(type)%>%
+  summarise(
+    p_rpd=wilcox.test(test.rpd,gt300.rpd,paired=T)[["p.value"]]%>%signif(2),
+    p_rmse=wilcox.test(test.rmse,gt300.rmse,paired=T)[["p.value"]]%>%signif(2),
+    p_lin=wilcox.test(test.linsCCC,gt300.linsCCC,paired=T)[["p.value"]]%>%signif(2),
+    n=length(test.linsCCC)
+  )%>%view
+
+
+
+# for each variable
+GT300_eval$evaluation%>%
+  group_by(variable)%>%
+  summarise(
+    p_rpd=wilcox.test(test.rpd,gt300.rpd,paired=T)[["p.value"]]%>%signif(2),
+    p_rmse=wilcox.test(test.rmse,gt300.rmse,paired=T)[["p.value"]]%>%signif(2),
+    p_lin=wilcox.test(test.linsCCC,gt300.linsCCC,paired=T)[["p.value"]]%>%signif(2),
+    n=length(test.linsCCC),
+    diff=(gt300.rmse-test.rmse)/test.rmse
+  )%>%filter(variable%in%names(variable_lookup))%>%view
+
+
 
 ## Models - train size ####
+
+### dummy for schematic split vis
+#### df ####
+
+##### Tibble 1: repeat_splits ####
+
+n_train <- 423
+
+repeat_splits <- tibble(x = c(1:605))
+
+for (i in 1:5) {
+  train_ids <- naes(all_archive%>%filter(!str_detect(Campaign,"3")&!is.na(`TOC [wt-%]`))%>%pull(spc_sg_snv_rs4),k = 423)[["model"]]
+  repeat_splits[[paste0("repeat", i)]] <- ifelse(x1 %in% train_ids, "train", "test")
+}
+
+# Convert to character columns
+repeat_splits <- repeat_splits %>% mutate(across(-x, as.character))
+
+
+
+##### Tibble 2: subset_sizes ####
+
+subset_sizes <- tibble(x = 1:423)
+
+for (size in seq(30, 420, by = 10)) {
+  train_ids <- naes(all_archive%>%filter(!str_detect(Campaign,"3")&!is.na(`TOC [wt-%]`))%>%filter(repeat_splits$repeat1=="train")%>%pull(spc_sg_snv_rs4),k = size)[["model"]]
+  subset_sizes[[paste0("size", size)]] <- ifelse(x2 %in% train_ids, "train", "not_used")
+  print(i)
+}
+
+# Convert to character columns
+subset_sizes <- subset_sizes %>% mutate(across(-x, as.character))
+
+
+
+#### plot ####
+##### repeats ####
+repeat_long <- repeat_splits %>%
+  pivot_longer(cols = starts_with("repeat"), names_to = "Repeat", values_to = "Set")
+
+# Factor to order the repeats
+repeat_long$Repeat <- factor(repeat_long$Repeat, levels = paste0("repeat", 1:5))
+
+# Assign numeric y-position for repeats (for horizontal stacking)
+repeat_long <- repeat_long %>%
+  mutate(y = as.numeric(Repeat))
+
+# Plot using geom_tile for horizontal bar style
+ggplot(repeat_long, aes(x = x, y = y, fill = Set)) +
+  geom_tile(height = .8,alpha=.7) +
+  scale_y_continuous(
+    breaks = 1:5,
+    labels = paste0(1:5),
+    trans = "reverse"  # Optional: reverse to have repeat1 at top
+  ) +
+  scale_fill_manual("Split",values = c("train" = colorblind_safe_colors()[7], "test" = colorblind_safe_colors()[3]),labels=c("train"="Training","test"="Testing")) +
+  labs(
+    x = "Index",
+    y = "Repeat",
+    fill = "Set Type"
+  ) + 
+  coord_cartesian(expand = F)+
+  theme(panel.grid = element_blank(),
+        legend.position = "top")->repeat_split
+
+
+ggsave(plot=repeat_split,filename = "train_size_repeat_split.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=2,width=6,device="png")
+
+##### subsets ####
+
+
+# Reshape to long format
+subset_long <- subset_sizes %>%
+  pivot_longer(cols = starts_with("size"), names_to = "Size", values_to = "Set")
+
+# Factor to order size labels properly
+subset_long$Size <- factor(subset_long$Size, levels = paste0("size", seq(30, 420, by = 10)))
+
+# Assign numeric y-position for visual separation
+subset_long <- subset_long %>%
+  mutate(y = as.numeric(Size))
+
+# Plot using geom_tile
+ggplot(subset_long, aes(x = x, y = y, fill = Set)) +
+  geom_tile(height = 0.8,alpha=.7) +
+  scale_y_continuous(
+    breaks = seq_along(levels(subset_long$Size)),
+    labels = levels(subset_long$Size)%>%str_remove("size"),
+    trans = "reverse"  # Optional: largest training size on bottom
+  ) +
+  scale_fill_manual("Split",values = c("train" = colorblind_safe_colors()[7], "not_used" = "lightgray"),labels=c("train"="Training","not_used"="Not used")) +
+  labs(
+    x = "Index",
+    y = "Training Size",
+    fill = "Set Type"
+  ) +
+  theme_minimal() +
+  coord_cartesian(expand = F)+
+  theme(panel.grid = element_blank(),
+        legend.position = "top")->subset_split
+
+
+ggsave(plot=subset_split,filename = "train_size_subset_split.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=5,width=6,device="png")
+
 
 # fetch eval for TOC, diff model types,
 #' using DE-2024-BDF_archive + DE-2024-BDF_BfUL for training
 # eval with test set
-
 
 out_test=c()
 for (i in c(1:5)){
@@ -2851,18 +4326,46 @@ for (i in c(1:5)){
   }
 }
 
+# eval with core library
+out=c()
+for (i in c(1:5)){
+  for (mod_type in c("cubist_train_size_",
+                     "svmLin_train_size_",
+                     "pls_train_size_",
+                     "rf_train_size_")
+  ){
+    run_i=paste0(mod_type,i)
+    message(paste0("#######################################################################\n",
+                   "#######################################################################\n",
+                   "#######################################################################\n",
+                   run_i))  
+    out=bind_rows(out,(readRDS(paste0(data_dir,"Sean_Environment/R_main/models/train_size/validation/Valmain_",run_i))))
+  }
+}
 
 
+### Results ####
 
+####test eval plot  ####
 out_test%>%
   mutate(model=str_split_fixed(model_type,"_",2)[,1])%>%#pull(model)
-  group_by(model,size)%>%summarise(mean.rmse=mean(rmse,na.rm=T),
+  group_by(model,size)%>%summarise(median.rmse=median(rmse,na.rm=T),
                                    min.rmse=min(rmse,na.rm=T),
                                    max.rmse=max(rmse,na.rm=T),
-                                   mean.time=mean(time/tuning_grid_size,na.rm=T),
+                                   
+                                   median.rpd=median(rpd,na.rm=T),
+                                   min.rpd=min(rpd,na.rm=T),
+                                   max.rpd=max(rpd,na.rm=T),
+                                   
+                                   median.linsCCC=median(linsCCC,na.rm=T),
+                                   min.linsCCC=min(linsCCC,na.rm=T),
+                                   max.linsCCC=max(linsCCC,na.rm=T),
+                                   
+                                   median.time=median(time/tuning_grid_size,na.rm=T),
                                    min.time=min(time/tuning_grid_size,na.rm=T),
                                    max.time=max(time/tuning_grid_size,na.rm=T),
-                                   mean.total.time=mean(time,na.rm=T),
+                                   
+                                   median.total.time=median(time,na.rm=T),
                                    min.total.time=min(time,na.rm=T),
                                    max.total.time=max(time,na.rm=T)
   )%>%
@@ -2877,42 +4380,134 @@ out_test%>%
   
   geom_errorbar(aes(ymin=min.rmse,
                     ymax=max.rmse,
-                    y=mean.rmse,
+                    y=median.rmse,
                     group=model),
                 linewidth=.25)+
-  geom_line(aes(y=mean.rmse,
+  geom_line(aes(y=median.rmse,
                 group=model))+
   
   
   geom_errorbar(aes(ymin=log10(min.time)/10-.2-(((log10(300))/10-.2)-((log10(100))/10-.2)),
                     ymax=log10(max.time)/10-.2-(((log10(300))/10-.2)-((log10(100))/10-.2)),
-                    y=log10(mean.time)/10-.2-(((log10(300))/10-.2)-((log10(100))/10-.2)),
+                    y=log10(median.time)/10-.2-(((log10(300))/10-.2)-((log10(100))/10-.2)),
                     group=model),
                 linewidth=.25)+
-  geom_line(aes(y=log10(mean.time)/10-.2-(((log10(300))/10-.2)-((log10(100))/10-.2)),
+  geom_line(aes(y=log10(median.time)/10-.2-(((log10(300))/10-.2)-((log10(100))/10-.2)),
                 group=model))+
-  scale_y_continuous("RMSEP [wt-% TOC]",
+  scale_y_continuous("RMSE [wt-% TOC]",
                      breaks=seq(0.1,.7,.1),
-                     sec.axis = sec_axis("Average training time per tuning-grid element [sec]",
+                     sec.axis = sec_axis("Time per tuning-grid element [sec]",
                                          transform=~10**((.+.2+(((log10(300))/10-.2)-((log10(100))/10-.2)))*10),
                                          breaks=c(.1,.3,1,3,10,30,100)))+
   coord_cartesian(ylim = c(-.35,.75))+
-  ggthemes::scale_color_colorblind("",breaks=c("cubist","pls","rf","svmLin"),labels=c("Cubist","PLSR","RF","SVM.linear"))+
+  ggthemes::scale_color_colorblind("",breaks=c("cubist","pls","rf","svmLin"),labels=c("Cubist","PLS","RF","SVM"))+
   xlab("Traingsset-size")+
   scale_linetype_discrete("",breaks=c("rmse","time"),labels=c("RMSEP","Time"))+
-  ggpubr::theme_pubr()->plt_train_size_test
+  theme_pubr()+
+  theme(axis.title.y.left = element_text(hjust=.725),
+        axis.title.y.right = element_text(hjust=1),
+        legend.position = "inside",
+        legend.direction = "horizontal",
+        legend.position.inside = c(.5,.95))->plt_train_size_test
 
+plt_train_size_test
 
 
 ggsave(plot=plt_train_size_test,filename = "train_size_test.png",
        path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
-       height=10,width=7,device="png")
+       height=8,width=6,device="png")
 
 
 
 
 
+#### DE-2023-BDF_archive eval plot  ####
+# eval with DE-2023-BDF_archive
 
+out%>%
+  mutate(model=str_split_fixed(model_type,"_",2)[,1])%>%#pull(model)
+  group_by(model,size)%>%summarise(median.rmse=median(rmse,na.rm=T),
+                                   min.rmse=min(rmse,na.rm=T),
+                                   max.rmse=max(rmse,na.rm=T),
+                                   median.time=median(time/tuning_grid_size,na.rm=T),
+                                   min.time=min(time/tuning_grid_size,na.rm=T),
+                                   max.time=max(time/tuning_grid_size,na.rm=T),
+                                   median.total.time=median(time,na.rm=T),
+                                   min.total.time=min(time,na.rm=T),
+                                   max.total.time=max(time,na.rm=T)
+  )%>%
+  ggplot(aes(x=size,col=model))+
+  geom_hline(yintercept = c(
+    seq(.3,.8,.1),
+    log10(c(.1,.3,1,3,10,30,100,300))/10-(((log10(300))/10+.0)-((log10(100))/10+.0))
+  ),
+  col="grey",linetype="dotted")+
+  
+  geom_hline(yintercept = .2)+
+  
+  geom_errorbar(aes(ymin=min.rmse,
+                    ymax=max.rmse,
+                    y=median.rmse,
+                    group=model),
+                linewidth=.25)+
+  geom_line(aes(y=median.rmse,
+                group=model))+
+  geom_errorbar(aes(ymin=log10(min.time)/10-(((log10(300))/10+.0)-((log10(100))/10+.0)),
+                    ymax=log10(max.time)/10-(((log10(300))/10+.0)-((log10(100))/10+.0)),
+                    y=log10(median.time)/10-(((log10(300))/10+.0)-((log10(100))/10+.0)),
+                    group=model),
+                linewidth=.25)+
+  geom_line(aes(y=log10(median.time)/10-(((log10(300))/10+.0)-((log10(100))/10+.0)),
+                group=model))+
+  scale_y_continuous("RMSE [wt-% TOC]",
+                     breaks=seq(0.3,.8,.1),
+                     sec.axis = sec_axis("Time per tuning-grid element [sec]",
+                                         transform=~10**((.+(((log10(300))/10+.0)-((log10(100))/10+.0)))*10),
+                                         breaks=c(.1,.3,1,3,10,30,100)))+
+  coord_cartesian(ylim = c(-.15,.85))+
+  ggthemes::scale_color_colorblind("",breaks=c("cubist","pls","rf","svmLin"),labels=c("Cubist","PLS","RF","SVM"))+
+  xlab("Traingsset-size")+
+  scale_linetype_discrete("",breaks=c("rmse","time"),labels=c("RMSEP","Time"))+
+  theme_pubr()+
+  theme(axis.title.y.left = element_text(hjust=.725),
+        axis.title.y.right = element_text(hjust=1),
+        legend.position = "inside",
+        legend.direction = "horizontal",
+        legend.position.inside = c(.5,.95),
+        legend.text = element_text(size=12))+
+  guides(color=guide_legend(override.aes = list(size=5)))->plt_train_size_main
+
+
+plt_train_size_main
+
+
+ggsave(plot=plt_train_size_main,filename = "train_size.png",
+       path ="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=8,width=6,device="png")
+
+
+#out_comp=
+out%>%select(model_type,size,time,n,rmse)%>%
+  left_join(out_test%>%select(model_type,size,time,n,rmse),
+            by=c("model_type","size","time"),suffix = c(".main",".test"))%>%  
+  mutate(model=str_split_fixed(model_type,"_",2)[,1],rmse.diff=(rmse.main-rmse.test)/rmse.test)%>%#pull(model)
+  group_by(model,size)%>%summarise(median.rmse=median(rmse.diff,na.rm=T),
+                                   min.rmse=min(rmse.diff,na.rm=T),
+                                   max.rmse=max(rmse.diff,na.rm=T)
+  )%>%
+  ggplot(aes(x=size,col=model))+
+  geom_errorbar(aes(ymin=min.rmse,
+                    ymax=max.rmse,
+                    y=median.rmse,
+                    group=model),
+                linewidth=.25)+
+  geom_line(aes(y=median.rmse,
+                group=model))
+
+
+
+
+#### DE-2023-BDF_archive eval plot TOTAL TIME  ####
 # eval with DE-2023-BDF_archive
 
 out=c()
@@ -2936,20 +4531,20 @@ for (i in c(1:5)){
 
 out%>%
   mutate(model=str_split_fixed(model_type,"_",2)[,1])%>%#pull(model)
-  group_by(model,size)%>%summarise(mean.rmse=mean(rmse,na.rm=T),
+  group_by(model,size)%>%summarise(median.rmse=median(rmse,na.rm=T),
                                    min.rmse=min(rmse,na.rm=T),
                                    max.rmse=max(rmse,na.rm=T),
-                                   mean.time=mean(time/tuning_grid_size,na.rm=T),
+                                   median.time=median(time/tuning_grid_size,na.rm=T),
                                    min.time=min(time/tuning_grid_size,na.rm=T),
                                    max.time=max(time/tuning_grid_size,na.rm=T),
-                                   mean.total.time=mean(time,na.rm=T),
+                                   median.total.time=median(time,na.rm=T),
                                    min.total.time=min(time,na.rm=T),
                                    max.total.time=max(time,na.rm=T)
   )%>%
   ggplot(aes(x=size,col=model))+
   geom_hline(yintercept = c(
     seq(.3,.8,.1),
-    log10(c(.1,.3,1,3,10,30,100,300))/10-(((log10(300))/10+.0)-((log10(100))/10+.0))
+    log10(c(3,10,30,100,300,1000,3000))/10-(.2)
   ),
   col="grey",linetype="dotted")+
   
@@ -2957,34 +4552,47 @@ out%>%
   
   geom_errorbar(aes(ymin=min.rmse,
                     ymax=max.rmse,
-                    y=mean.rmse,
+                    y=median.rmse,
                     group=model),
                 linewidth=.25)+
-  geom_line(aes(y=mean.rmse,
+  geom_line(aes(y=median.rmse,
                 group=model))+
-  geom_errorbar(aes(ymin=log10(min.time)/10-(((log10(300))/10+.0)-((log10(100))/10+.0)),
-                    ymax=log10(max.time)/10-(((log10(300))/10+.0)-((log10(100))/10+.0)),
-                    y=log10(mean.time)/10-(((log10(300))/10+.0)-((log10(100))/10+.0)),
+  
+  
+  geom_errorbar(aes(ymin=log10(min.total.time)/10-.2,
+                    ymax=log10(max.total.time)/10-.2,
+                    y=log10(median.total.time)/10-.2,
                     group=model),
                 linewidth=.25)+
-  geom_line(aes(y=log10(mean.time)/10-(((log10(300))/10+.0)-((log10(100))/10+.0)),
+  geom_line(aes(y=log10(median.total.time)/10-(.2),
                 group=model))+
-  scale_y_continuous("RMSEP [wt-% TOC]",
+  
+  
+  scale_y_continuous("RMSE [wt-% TOC]",
                      breaks=seq(0.3,.8,.1),
-                     sec.axis = sec_axis("Average training time per tuning-grid element [sec]",
-                                         transform=~10**((.+(((log10(300))/10+.0)-((log10(100))/10+.0)))*10),
-                                         breaks=c(.1,.3,1,3,10,30,100)))+
+                     sec.axis = sec_axis("Total training time [sec]",
+                                         transform=~10**((.+.2)*10),
+                                         breaks=c(3,10,30,100,300,1000,3000)))+
   coord_cartesian(ylim = c(-.15,.85))+
-  ggthemes::scale_color_colorblind("",breaks=c("cubist","pls","rf","svmLin"),labels=c("Cubist","PLSR","RF","SVM.linear"))+
+  ggthemes::scale_color_colorblind("",breaks=c("cubist","pls","rf","svmLin"),labels=c("Cubist","PLS","RF","SVM"))+
   xlab("Traingsset-size")+
   scale_linetype_discrete("",breaks=c("rmse","time"),labels=c("RMSEP","Time"))+
-  ggpubr::theme_pubr()->plt_train_size_main
+  theme_pubr()+
+  theme(axis.title.y.left = element_text(hjust=.725),
+        axis.title.y.right = element_text(hjust=.9),
+        legend.position = "inside",
+        legend.direction = "horizontal",
+        legend.position.inside = c(.5,.95),
+        legend.text = element_text(size=12))+
+  guides(color=guide_legend(override.aes = list(size=5)))->plt_train_size_main_tot_time
 
 
+plt_train_size_main_tot_time
 
-ggsave(plot=plt_train_size_main,filename = "train_size.png",
+
+ggsave(plot=plt_train_size_main_tot_time,filename = "train_size_tot_time.png",
        path ="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
-       height=10,width=7,device="png")
+       height=8,width=6,device="png")
 
 
 #out_comp=
@@ -2992,19 +4600,297 @@ out%>%select(model_type,size,time,n,rmse)%>%
   left_join(out_test%>%select(model_type,size,time,n,rmse),
             by=c("model_type","size","time"),suffix = c(".main",".test"))%>%  
   mutate(model=str_split_fixed(model_type,"_",2)[,1],rmse.diff=(rmse.main-rmse.test)/rmse.test)%>%#pull(model)
-  group_by(model,size)%>%summarise(mean.rmse=mean(rmse.diff,na.rm=T),
+  group_by(model,size)%>%summarise(median.rmse=median(rmse.diff,na.rm=T),
                                    min.rmse=min(rmse.diff,na.rm=T),
                                    max.rmse=max(rmse.diff,na.rm=T)
   )%>%
   ggplot(aes(x=size,col=model))+
   geom_errorbar(aes(ymin=min.rmse,
                     ymax=max.rmse,
-                    y=mean.rmse,
+                    y=median.rmse,
                     group=model),
                 linewidth=.25)+
-  geom_line(aes(y=mean.rmse,
+  geom_line(aes(y=median.rmse,
                 group=model))
 
 
+#### all (multimetric plots) ####
+##### test ####
+
+
+
+bind_rows(tibble(out_test,dataset="Test sets"),
+          tibble(out,dataset="DE-2023-BDF_archive"))%>%
+  mutate(model=str_split_fixed(model_type,"_",2)[,1])%>%pivot_longer(cols = c(rmse,
+                                                                              rpd,
+                                                                              R2,
+                                                                              #linsCCC,
+                                                                              bias))%>%
+  group_by(dataset,model,size,name)%>%summarise(
+    across(.cols = value,.fns = list(mean=mean,min=min,max=max,median=median)))%>%
+  filter(!dataset=="DE-2023-BDF_archive")%>%
+  
+  ggplot(aes(x=size,col=model))+
+  
+  geom_errorbar(aes(ymin=value_min,
+                    ymax=value_max,
+                    y=value_median,
+                    group=model),
+                linewidth=.25)+
+  
+  geom_line(aes(y=value_median,
+                group=model))+
+  
+  geom_hline(data=tibble(name="bias"),aes(yintercept = 0))+
+  
+  ggthemes::scale_color_colorblind("",breaks=c("cubist","pls","rf","svmLin"),labels=c("Cubist","PLS","RF","SVM"))+
+  theme_pubr()+
+  theme(panel.grid.major.y = element_line(linetype = "dotted",color="grey"),
+        #legend.position = "top",
+        legend.direction = "horizontal",
+        legend.position = "inside",
+        legend.position.inside = c(.5,.97),panel.border = element_rect(colour = "black",fill=rgb(0,0,0,0))
+  )+
+  xlab("Size of Training-Set")+
+  ylab("")+
+  # scale_y_continuous("R2 [wt-% TOC]",breaks=seq(0,1,.1))+
+  # facet_wrap(~name,scales="free_y")#+
+  facet_grid(rows=vars(factor(name,levels = c("rmse","bias","rpd","R2","linsCCC"),labels=c("RMSE","Bias","RPD","R2","Lin's CCC"))),
+             cols=vars(factor(dataset,levels=c("Test sets","DE-2023-BDF_archive"))),
+             scales="free_y")->train_size_all_val_test
+train_size_all_val_test
+ggsave(train_size_all_val,filename = "train_size_all_val_test.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=12,width=8,device="png")
+
+
+
+##### core ####
+
+bind_rows(tibble(out_test,dataset="Test sets"),
+          tibble(out,dataset="DE-2023-BDF_archive"))%>%
+  mutate(model=str_split_fixed(model_type,"_",2)[,1])%>%pivot_longer(cols = c(rmse,
+                                                                              rpd,
+                                                                              R2,
+                                                                              #linsCCC,
+                                                                              bias))%>%
+  group_by(dataset,model,size,name)%>%summarise(
+    across(.cols = value,.fns = list(mean=mean,min=min,max=max,median=median)))%>%
+  filter(dataset=="DE-2023-BDF_archive")%>%
+  
+  ggplot(aes(x=size,col=model))+
+  
+  geom_errorbar(aes(ymin=value_min,
+                    ymax=value_max,
+                    y=value_median,
+                    group=model),
+                linewidth=.25)+
+  
+  geom_line(aes(y=value_median,
+                group=model))+
+  
+  geom_hline(data=tibble(name="bias"),aes(yintercept = 0))+
+  
+  ggthemes::scale_color_colorblind("",breaks=c("cubist","pls","rf","svmLin"),labels=c("Cubist","PLS","RF","SVM"))+
+  theme_pubr()+
+  theme(panel.grid.major.y = element_line(linetype = "dotted",color="grey"),
+        #legend.position = "top",
+        legend.direction = "horizontal",
+        legend.position = "inside",
+        legend.position.inside = c(.5,.97),panel.border = element_rect(colour = "black",fill=rgb(0,0,0,0))
+  )+
+  xlab("Size of Training-Set")+
+  ylab("")+
+  # scale_y_continuous("R2 [wt-% TOC]",breaks=seq(0,1,.1))+
+  # facet_wrap(~name,scales="free_y")#+
+  facet_grid(rows=vars(factor(name,levels = c("rmse","bias","rpd","R2","linsCCC"),labels=c("RMSE","Bias","RPD","R2","Lin's CCC"))),
+             cols=vars(factor(dataset,levels=c("Test sets","DE-2023-BDF_archive"))),
+             scales="free_y")->train_size_all_val_core
+train_size_all_val_core
+ggsave(train_size_all_val,filename = "train_size_all_val_core.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=12,width=8,device="png")
+
+
+##### all ####
+
+bind_rows(tibble(out_test,dataset="Test sets"),
+          tibble(out,dataset="DE-2023-BDF_archive"))%>%
+  mutate(model=str_split_fixed(model_type,"_",2)[,1])%>%pivot_longer(cols = c(rmse,
+                                                                              rpd,
+                                                                              R2,
+                                                                              #linsCCC,
+                                                                              bias))%>%
+  group_by(dataset,model,size,name)%>%summarise(
+    across(.cols = value,.fns = list(mean=mean,min=min,max=max,median=median)))%>%
+  #filter(dataset=="DE-2023-BDF_archive")%>%
+  
+  ggplot(aes(x=size,col=model))+
+  
+  geom_errorbar(aes(ymin=value_min,
+                    ymax=value_max,
+                    y=value_median,
+                    group=model),
+                linewidth=.25)+
+  
+  geom_line(aes(y=value_median,
+                group=model))+
+  
+  geom_hline(data=tibble(name="bias"),aes(yintercept = 0))+
+  
+  ggthemes::scale_color_colorblind("",breaks=c("cubist","pls","rf","svmLin"),labels=c("Cubist","PLS","RF","SVM"))+
+  theme_pubr()+
+  theme(panel.grid.major.y = element_line(linetype = "dotted",color="grey"),
+        #legend.position = "top",
+        legend.direction = "horizontal",
+        legend.position = "inside",
+        legend.position.inside = c(.25,.97),panel.border = element_rect(colour = "black",fill=rgb(0,0,0,0))
+  )+
+  xlab("Size of Training-Set")+
+  ylab("")+
+  # scale_y_continuous("R2 [wt-% TOC]",breaks=seq(0,1,.1))+
+  # facet_wrap(~name,scales="free_y")#+
+  facet_grid(rows=vars(factor(name,levels = c("rmse","bias","rpd","R2","linsCCC"),labels=c("RMSE","Bias","RPD","R2","Lin's CCC"))),
+             cols=vars(factor(dataset,levels=c("Test sets","DE-2023-BDF_archive"))),
+             scales="free_y")->train_size_all_val
+train_size_all_val
+ggsave(train_size_all_val,filename = "train_size_all_val.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=10,width=8,device="png")
+
+
+
+##### stat table ####
+
+
+bind_rows(tibble(out_test,dataset="Test sets"),
+          tibble(out,dataset="DE-2023-BDF_archive"))%>%
+  mutate(model=str_split_fixed(model_type,"_",2)[,1])%>%pivot_longer(cols = c(rmse,
+                                                                              rpd,
+                                                                              R2,
+                                                                              #linsCCC,
+                                                                              bias))%>%
+  group_by(dataset,model,size,name)%>%
+  summarise(across(value,.fns = list(min=min,max=max,mean=mean,median=median)))%>%view
+
+
+
+
+
+#### pred for MM400 / GT300 subsets ####
+
+# all_pred=gt300_data%>%select(!contains("spc")) #exclude spc to save space
+all_pred_train_mm400gt300=read_rds(paste0(data_dir,"/Sean_Environment/R_main/model_out/all.mm400.gt300.pred_train.size.models"))
+if(F){
+require(progress)
+pb=progress::progress_bar$new(total=800,format = "[:bar] :percent (:current/:total) | :elapsed (:elapsedfull) | ETA: :eta" )
+for (model_type_i in c("pls","cubist","svm","rf")){
+  for (repeat_i in str_subset(list.dirs(paste0(data_dir,"/Sean_Environment/R_main/models/train_size/"),full.names = T),
+                              model_type_i)){
+    for (i in list.files(repeat_i,full.names = T)){
+      mm400_i=paste0("mm400_r",str_sub(repeat_i,str_length(repeat_i)),"_",basename(i))
+      gt300_i=paste0("gt300_r",str_sub(repeat_i,str_length(repeat_i)),"_",basename(i))
+      pb$tick()
+      if(!(mm400_i%in%names(all_pred_train_mm400gt300)&gt300_i%in%names(all_pred_train_mm400gt300))){
+        mod_i=readRDS(i)
+        all_pred_train_mm400gt300[[mm400_i]]=predict(mod_i,gt300_data$spc_sg_snv_rs4.mm400)
+        all_pred_train_mm400gt300[[gt300_i]]=predict(mod_i,gt300_data$spc_sg_snv_rs4.gt300)
+      }
+      
+    }
+    
+  }
+  
+}
+
+saveRDS(all_pred_train_mm400gt300,paste0(data_dir,"/Sean_Environment/R_main/model_out/all.mm400.gt300.pred_train.size.models"))
+
+}
+
+eval_train_mm400gt300=c()
+for (i in names(select(all_pred_train_mm400gt300,contains("mm400")|contains("gt300")))){
+  eval_train_mm400gt300=
+    bind_rows(
+      eval_train_mm400gt300,
+      tibble(id=i,
+             evaluate_model_adjusted(all_pred_train_mm400gt300,obs="TOC [wt-%]",pred=i)
+      )
+    )
+  print(i)
+}
+eval_train_mm400gt300=mutate(eval_train_mm400gt300,
+          dataset=str_split_fixed(id,"_",2)[,1],
+          rep=str_remove(str_split_fixed(id,"_",3)[,2],"r"),
+          model=str_split_fixed(id,"_",4)[,3],
+          size=str_split_fixed(id,"_TOC_",2)[,2]
+          )%>%mutate(model=str_remove(model,"ear"),
+                     size=as.numeric(size),
+                     dataset=case_match(dataset,
+                                        "gt300"~"DE-2023-BDF_archive GT300",
+                                        "mm400"~"DE-2023-BDF_archive MM400"))
+
+
+eval_train_mm400gt300%>%pivot_longer(cols = c(rmse,
+                                              rpd,
+                                              R2,
+                                              #linsCCC,
+                                              bias))%>%
+  group_by(dataset,model,size,name)%>%summarise(
+    across(.cols = value,.fns = list(mean=mean,min=min,max=max,median=median)))%>%
+  #filter(!dataset=="DE-2023-BDF_archive")%>%
+  
+  ggplot(aes(x=size,col=model))+
+  
+  geom_errorbar(aes(ymin=value_min,
+                    ymax=value_max,
+                    y=value_median,
+                    group=model),
+                linewidth=.25)+
+  
+  geom_line(aes(y=value_median,
+                group=model))+
+  
+  geom_hline(data=tibble(name="bias"),aes(yintercept = 0))+
+  
+  ggthemes::scale_color_colorblind("",breaks=c("cubist","pls","rf","svmLin"),labels=c("Cubist","PLS","RF","SVM"))+
+  theme_pubr()+
+  theme(panel.grid.major.y = element_line(linetype = "dotted",color="grey"),
+        #legend.position = "top",
+        legend.direction = "horizontal",
+        legend.position = "inside",
+        legend.position.inside = c(.25,.97),panel.border = element_rect(colour = "black",fill=rgb(0,0,0,0))
+  )+
+  xlab("Size of Training-Set")+
+  ylab("")+
+  # scale_y_continuous("R2 [wt-% TOC]",breaks=seq(0,1,.1))+
+  # facet_wrap(~name,scales="free_y")#+
+  facet_grid(rows=vars(factor(name,levels = c("rmse","bias","rpd","R2","linsCCC"),labels=c("RMSE","Bias","RPD","R2","Lin's CCC"))),
+             cols=vars(factor(dataset,levels=c("DE-2023-BDF_archive GT300","DE-2023-BDF_archive MM400"))),
+             scales="free_y")->train_size_mm400_gt300
+train_size_mm400_gt300
+ggsave(train_size_mm400_gt300,filename = "train_size_mm400_gt300.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=10,width=8,device="png")
+
+
+all_pred_train_mm400gt300%>%
+  select(`TOC [wt-%]`,contains("mm400")|contains("gt300"))%>%
+  pivot_longer(cols = contains("mm400")|contains("gt300"),names_to = "id")%>%
+  mutate(
+    dataset=str_split_fixed(id,"_",2)[,1],
+    rep=str_remove(str_split_fixed(id,"_",3)[,2],"r"),
+    model=str_split_fixed(id,"_",4)[,3],
+    size=str_split_fixed(id,"_TOC_",2)[,2])%>%
+  mutate(model=str_remove(model,"ear"),
+           size=as.numeric(size))%>%
+  select(-id)%>%
+  pivot_wider(names_from = rep,values_from = value)%>%
+  rowwise%>%
+  mutate(meanpred=mean(c(`1`,`2`,`3`,`4`,`5`)))%>%
+  ggplot(aes(x=`TOC [wt-%]`,y=meanpred,col=size))+
+  geom_point()+
+  geom_abline(slope = 1)+
+  facet_nested_wrap(~model)+
+  scale_color_viridis_c(alpha = .1)
 
 # END ####  
