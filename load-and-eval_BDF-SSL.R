@@ -593,6 +593,371 @@ ggsave(filename="TOC_test_diff_depth.png",path="C:/Users/adam/Desktop/UNI/PhD/DI
 
 ggstatsplot::grouped_ggbetweenstats(data = data_1cm%>%filter(set%in%c("0-10 cm","10-30 cm", "30-50 cm")),x=site_id,y=`TOC [wt-%]`,grouping.var = set,type="np")#%>%
 
+################################################################################################################################################################################################################
+# insert ####
+################################################################################################################################################################################################################
+
+# LOAD ####
+
+# set root directory path
+# So script can easily be used on different devices. But does not change working directroy for project
+
+
+
+
+{
+  # TRD measuerd traditionally (soil cylinders) by us in the scope of the sampling campaign
+  Lagerungsdichte_Referenz_neu <- read_excel(paste0(data_dir,"/Sean_Environment/BDF/BDF-SSL/1_data/3_physik/Adam-2024_VZ-TRD.xlsx"))
+  TRD_neu=left_join(
+    Lagerungsdichte_Referenz_neu%>%mutate(Tiefe_avg=(`Tiefe von`+`Tiefe bis`)/2)%>%
+      group_by(BDF=`BDF-Fläche`,Horizont,`Tiefe von`,`Tiefe bis`,Tiefe_avg)%>%
+      summarise(minTRD=min(`TRD g/cm3`),maxTRD=max(`TRD g/cm3`),TRD=mean(`TRD g/cm3`)),
+    
+    #manually assigning Horizont for merge
+    data%>%
+      mutate(
+             Horizont=case_match(site_id,
+                                 "02"~case_match(as.character(Depth_top),
+                                                 "6"~"Ap",
+                                                 "20"~"rAp",
+                                                 "35"~"aM",
+                                                 "65"~"II aM"
+                                 ),
+                                 "23"~case_match(as.character(Depth_top),
+                                                 "2"~"Ap",
+                                                 "38"~"Sw-Bv"),
+                                 "30"~case_match(as.character(Depth_top),
+                                                 "4"~"aAxh",
+                                                 "30"~"aAxh_2",
+                                                 "54"~"Axh-aM"
+                                 ),
+                                 "35"~case_match(as.character(Depth_top),
+                                                 "5"~"Ap",
+                                                 "20"~"rAp",
+                                                 "38"~"Sw",
+                                                 "65"~"Sdw"
+                                 )
+             )
+      ),
+    by=c(
+      "BDF"="site_id",
+      "Horizont"="Horizont"
+    )
+  )
+  
+}
+
+
+
+
+pivot_wider(Lagerungsdichte_Referenz_neu%>%
+              mutate(No=rep(c(1:5),13))%>%
+              select(-Stechzylindernummer,-Größe),names_from=No, names_prefix = "VZ_", values_from = `TRD g/cm3`)->VZ_ref
+
+#View(VZ_ref)
+
+data%>%filter(!substr(LabelEvent,2,2)=="G")%>%mutate(
+                       VZ_ref_ID=case_match(site_id,
+                                            "BDF02"~case_when(
+                                              
+                                              Depth_top<.15&
+                                                Depth_bottom<=.15~"LGAJ",
+                                              
+                                              Depth_top>=.15&
+                                                Depth_top<.32&
+                                                Depth_bottom>.15&
+                                                Depth_bottom<=.32~"LGAK",
+                                              
+                                              Depth_top>=.32&
+                                                Depth_top<.50&
+                                                Depth_bottom>.32&
+                                                Depth_bottom<=.50~"LGAL",
+                                              
+                                              Depth_top>=.50&
+                                                Depth_top<1.02&
+                                                Depth_bottom>.50&
+                                                Depth_bottom>1.02~"LGAM"
+                                              ),
+                                            
+                                            
+                                            "BDF23"~ case_when(
+                                              
+                                              Depth_top<.20&
+                                                Depth_bottom>=.20~"LGAH",
+                                              
+                                              Depth_top>=.2&
+                                                Depth_top<.70&
+                                              Depth_bottom>.20&
+                                              Depth_bottom<=.70~"LGAI"
+                                              ),
+                       
+                                            "BDF30" ~ case_when(
+                                              Depth_top < 0.10 & 
+                                                Depth_bottom <= 0.10 ~ "LGAG",
+                                              
+                                              Depth_top >= 0.10 & 
+                                                Depth_top < 0.45 & 
+                                                Depth_bottom > 0.10 & 
+                                                Depth_bottom <= 0.45 ~ "LGAF",
+                                              
+                                              Depth_top >= 0.45 & 
+                                                Depth_top < 0.90 &
+                                                Depth_bottom > 0.45 &
+                                                Depth_bottom <= 0.90 ~ "LGAE"
+                                            ),
+                                            
+                                            
+                                            "BDF35" ~ case_when(
+                                              Depth_top < 0.20 & 
+                                                Depth_bottom <= 0.20 ~ "LGAA",
+                                              
+                                              Depth_top >= 0.20 &
+                                               Depth_top < 0.30 &
+                                               Depth_bottom > 0.20 &
+                                               Depth_bottom <= 0.30 ~ "LGAB",
+                                        
+                                              Depth_top >= 0.30 &
+                                               Depth_top < 0.60 &
+                                               Depth_bottom > 0.30 &
+                                               Depth_bottom <= 0.60 ~ "LGAC",
+                                              
+                                              Depth_top >= 0.60 &
+                                               Depth_top < 0.80 &
+                                               Depth_bottom > 0.60 &
+                                               Depth_bottom <= 0.80 ~ "LGAD"
+                                            )
+                                            
+                                            # "BDF30"~ case_when(
+                                            #   Depth_top%in%c(0:10)/100&
+                                            #     Depth_bottom%in%c(0:10)/100~"LGAG",
+                                            #   Depth_top%in%c(10:45)/100&
+                                            #     Depth_bottom%in%c(10:45)/100~"LGAF",
+                                            #   Depth_top%in%c(45:90)/100&
+                                            #     Depth_bottom%in%c(45:90)/100~"LGAE"),
+                                            # "BDF35"~ case_when(
+                                            #   Depth_top%in%c(0:20)/100&Depth_bottom%in%c(0:20)/100~"LGAA",
+                                            #   Depth_top%in%c(20:30)/100&Depth_bottom%in%c(20:30)/100~"LGAB",
+                                            #   Depth_top%in%c(30:60)/100&Depth_bottom%in%c(30:60)/100~"LGAC",
+                                            #   Depth_top%in%c(60:80)/100&Depth_bottom%in%c(60:80)/100~"LGAD")
+                       ))%>%#select(site_id,LabelEvent,Depth_top,Depth_bottom,VZ_ref_ID)%>%print(n=999)
+  filter(!is.na(VZ_ref_ID)&!str_starts(LabelEvent,"LG"))%>%
+  
+  mutate(L_fb=`dB_40FB [g/cm3]`,
+         L_all=`dB_40 [g/cm3]`,
+         A_fb=`dB_105FB [g/cm3]`,
+         A_all=`dB_105 [g/cm3]`,
+         Typ=Device,
+         BDF=site_id)%>%
+  
+  group_by(VZ_ref_ID,Device)%>%
+  mutate(No=c(1:length(Device)),set=substr(LabelEvent,2,2))%>%
+  ungroup()->prep
+
+#PS
+prep%>%filter(set=="P")%>%
+  pivot_wider(names_from=c(No),values_from=c(L_fb,L_all,A_fb,A_all))%>%
+  left_join(VZ_ref,by=c("VZ_ref_ID"="LG_sample"))->PS_prep
+
+prep%>%filter(set=="R")%>%
+  pivot_wider(names_from=c(No),values_from=c(L_fb,L_all,A_fb,A_all))%>%
+  left_join(VZ_ref,by=c("VZ_ref_ID"="LG_sample"))->RK_prep
+
+prep%>%filter(set=="Q")%>%
+  pivot_wider(names_from=c(No),values_from=c(L_fb,L_all,A_fb,A_all))%>%
+  left_join(VZ_ref,by=c("VZ_ref_ID"="LG_sample"))->QS_prep
+
+
+# new approach ####
+#' Aggegieren der TRD-Daten für Atro_all (einzig wirklich vergleichbare Daten)
+##########################################################################
+RK_diameter=6.35 #cm ~2.5 inch (V = pi * RK_diameter^2 / 4 * (Tiefe_bis - Tiefe_von))
+RK_area=(RK_diameter/2)**2*3.1415926 #cm2 (V per 1cm Höhe)
+QS_vol=66 #cm³ known syringe volume
+PS_area=a=8*2 #cm2 (V per 1cm Höhe) (width*depth, V = PS_area * (Tiefe_bis - Tiefe_von))
+
+#####################################################################################################################################################################################################################
+# bookmark, fixed till here ####
+#####################################################################################################################################################################################################################
+
+BDF_frisch%>%unnest(TRD,names_sep = "_")%>%unnest(sampling_data,names_sep = "_")%>%
+  filter(!is.na(TRD_BDF)&!str_starts(sample_id,"LG"))%>%
+  transmute(Typ=sample_id %>%substr(2,2),
+            Horizont=case_match(sampling_data_BDF,
+                                "02"~case_when(
+                                  sampling_data_Tiefe_von%in%c(0:15)&sampling_data_Tiefe_bis%in%c(0:15)~"Ap",
+                                  sampling_data_Tiefe_von%in%c(15:32)&sampling_data_Tiefe_bis%in%c(15:32)~"rAp",
+                                  sampling_data_Tiefe_von%in%c(32:50)&sampling_data_Tiefe_bis%in%c(32:50)~"aM",
+                                  sampling_data_Tiefe_von%in%c(50:102)&sampling_data_Tiefe_bis%in%c(50:102)~"II aM"),
+                                "23"~ case_when(
+                                  sampling_data_Tiefe_von%in%c(0:20)&sampling_data_Tiefe_bis%in%c(0:20)~"Ap",
+                                  sampling_data_Tiefe_von%in%c(20:70)&sampling_data_Tiefe_bis%in%c(20:70)~"Sw-Bv"),
+                                "30"~ case_when(
+                                  sampling_data_Tiefe_von%in%c(0:10)&sampling_data_Tiefe_bis%in%c(0:10)~"aAxh",
+                                  sampling_data_Tiefe_von%in%c(10:45)&sampling_data_Tiefe_bis%in%c(10:45)~"aAxh_2",
+                                  sampling_data_Tiefe_von%in%c(45:90)&sampling_data_Tiefe_bis%in%c(45:90)~"Axh-aM"),
+                                "35"~ case_when(
+                                  sampling_data_Tiefe_von%in%c(0:20)&sampling_data_Tiefe_bis%in%c(0:20)~"Ap",
+                                  sampling_data_Tiefe_von%in%c(20:30)&sampling_data_Tiefe_bis%in%c(20:30)~"rAp",
+                                  sampling_data_Tiefe_von%in%c(30:60)&sampling_data_Tiefe_bis%in%c(30:60)~"Sw",
+                                  sampling_data_Tiefe_von%in%c(60:80)&sampling_data_Tiefe_bis%in%c(60:80)~"Sdw")
+            ),
+            BDF=TRD_BDF,
+            Tiefe_von=sampling_data_Tiefe_von,
+            Tiefe_bis=sampling_data_Tiefe_bis,
+            dh=Tiefe_bis-Tiefe_von,
+            vol=case_match(Typ,
+                           "Q"~QS_vol,
+                           "R"~dh*RK_area,
+                           "P"~dh*PS_area),
+            vol_corr=vol-(TRD_Skelett/2.65),
+            L_fb=TRD_Lutro_density_FB,
+            L_fb_corr=TRD_FB_LUTRO/vol_corr,
+            L_all=TRD_Lutro_density_all,
+            L_fb_corr=TRD_FB_LUTRO/vol_corr,
+            A_fb=TRD_Atro_density_FB,
+            A_fb_corr=TRD_FB_ATRO/vol_corr,
+            A_all=TRD_Atro_density_all
+  )%>%bind_rows(
+    Lagerungsdichte_Referenz_neu%>%#
+      transmute(vol=`Größe`,
+                Horizont=Horizont,
+                BDF=`BDF-Fläche`,
+                Tiefe_von=`Tiefe von`,
+                Tiefe_bis=`Tiefe bis`,
+                A_all=`TRD g/cm3`,
+                Typ="VZ"))->TRD_prep
+
+
+(
+  TRD_prep%>%group_by(Typ,BDF,Horizont)%>%
+    summarise(v=var(A_all))%>%
+    ggplot(aes(x=Typ,y=v,fill=Typ))+
+    geom_boxplot(alpha=.5,outliers = F)+
+    geom_point(shape=4,alpha=.5,position=position_jitter(width = .25))+
+    scale_fill_colorblind()+
+    theme_pubr()+
+    theme(legend.position = "none")+
+    ylab("Varianz der Trockenrohdichte")+
+    scale_x_discrete(breaks=c("P","Q","R","VZ"),labels=c("Profilspaten (n=6)",
+                                                         "Quicksampler (n=14)",
+                                                         "Rammkern (n=17)",
+                                                         "Stechzylinder (n=13)"))+
+    coord_flip())#%>%
+
+
+
+ggsave(filename="TRD_Varianz_Probenahmetyp.png",width=6,height = 2,
+       device = "png",path = paste0(code_dir,"GitLab/phd_code/R_main/temp/"))
+
+
+(
+  TRD_prep%>%group_by(Typ,BDF,Horizont)%>%
+    summarise(v=var(A_all))%>%
+    ggplot(aes(x=Typ,y=sqrt(v),fill=Typ))+
+    geom_boxplot(alpha=.5,outliers = F)+
+    geom_point(shape=4,alpha=.5,position=position_jitter(width = .25))+
+    scale_fill_colorblind()+
+    theme_pubr()+
+    theme(legend.position = "none")+
+    ylab("Standardabweichung der Trockenrohdichte [g/cm³]")+
+    scale_x_discrete(breaks=c("P","Q","R","VZ"),labels=c("Profilspaten (n=6)",
+                                                         "Quicksampler (n=14)",
+                                                         "Rammkern (n=17)",
+                                                         "Stechzylinder (n=13)"))+
+    coord_flip())#%>%
+ggsave(filename="TRD_sd_Probenahmetyp.png",width=6,height = 2,
+       device = "png",path = paste0(code_dir,"GitLab/phd_code/R_main/temp/"))
+
+
+ggstatsplot::ggbetweenstats(TRD_prep%>%group_by(Typ,Horizont)%>%
+                              summarise(v=var(A_all)),x=Typ,y=v)
+
+ggstatsplot::ggbetweenstats(TRD_prep%>%group_by(Typ,Horizont)%>%
+                              summarise(TRD=(A_all)),x=Typ,y=TRD)
+
+TRD_prep%>%
+  group_by(BDF,Horizont,Typ)%>%
+  summarise(avg_TRD=mean(A_all,na.rm = T),
+            min_TRD=min(A_all,na.rm = T),
+            max_TRD=max(A_all,na.rm = T),
+            n=length(na.omit(A_all))
+  )%>%select(-n)%>% # n removed for plotting pipeline
+  na.omit%>% # rm Horizons without VZ
+  pivot_wider(names_from = Typ,values_from = c(avg_TRD,min_TRD,max_TRD))%>%
+  pivot_longer(cols=c(avg_TRD_P,avg_TRD_Q,avg_TRD_R,
+                      min_TRD_P,min_TRD_Q,min_TRD_R,
+                      max_TRD_P,max_TRD_Q,max_TRD_R))%>%
+  mutate(metric=str_split_fixed(name,"_",3)[,1],
+         Typ=str_split_fixed(name,"_",3)[,3])%>%select(-name)%>%
+  pivot_wider(names_from = metric,values_from = value)->TRD_plot_ready
+
+
+(
+  TRD_plot_ready%>%
+    ggplot(aes(x=avg_TRD_VZ,col=BDF,fill=BDF,shape=BDF))+
+    geom_abline(slope=1,linetype="dotted")+
+    geom_smooth(method="glm",aes(x=avg_TRD_VZ,y=avg,group=Typ),alpha=.2)+  
+    geom_point(aes(y=avg),size=4,alpha=.5)+
+    geom_errorbar(aes(y=avg,ymin=min,ymax=max),width=.02,alpha=.5)+
+    geom_errorbar(aes(y=avg,xmin=min_TRD_VZ,xmax=max_TRD_VZ),width=.02,alpha=.5)+
+    scale_shape_manual("Standort",breaks=c("02","23","30","35"),labels=c("BDF02","BDF23","BDF30","BDF35"),values = c(21:25))+
+    scale_fill_manual("Standort",breaks=c("02","23","30","35"),labels=c("BDF02","BDF23","BDF30","BDF35"),values = colorblind_safe_colors[c(1:4)])+
+    scale_color_manual("Standort",breaks=c("02","23","30","35"),labels=c("BDF02","BDF23","BDF30","BDF35"),values = colorblind_safe_colors[c(1:4)])+
+    theme_pubr()+
+    # geom_label(data=tibble(x=rep(1.5,3),
+    #                        y=rep(2.5,3),
+    #                        Typ=c("P","Q","R"),
+    #                        label=c("a",
+    #                                "b",
+    #                                "c"),
+    #                        BDF="NA"),
+    #            aes(x=x,y=y,label=label),
+    #            col="black",fill="white")+
+    xlab("Stechzylinder TRD [g/cm³]")+
+    ylab("Verglichenen Methode TRD [g/cm³]")+
+    facet_wrap(~case_match(Typ,"P"~"Profilspaten","Q"~"Quicksampler","R"~"Rammkern"))+
+    ggtitle("Vergleich mittleren TRD der beprobten Horizonte")
+)#%>%
+
+
+ggsave(filename="TRD_scatter_VZ_vs_RK-PS-QS.png",width=8,height = 4,
+       device = "png",path = paste0(code_dir,"GitLab/phd_code/R_main/temp/"))
+
+
+
+lm(data=TRD_plot_ready%>%filter(Typ=="R"),avg~avg_TRD_VZ)
+lm(data=TRD_plot_ready%>%filter(Typ=="Q"),avg~avg_TRD_VZ)
+lm(data=TRD_plot_ready%>%filter(Typ=="P"),avg~avg_TRD_VZ)
+
+RMSE(TRD_plot_ready%>%filter(Typ=="Q")%>%pull(avg_TRD_VZ),TRD_plot_ready%>%filter(Typ=="Q")%>%pull(avg))
+RMSE(TRD_plot_ready%>%filter(Typ=="R")%>%pull(avg_TRD_VZ),TRD_plot_ready%>%filter(Typ=="R")%>%pull(avg))
+RMSE(TRD_plot_ready%>%filter(Typ=="P")%>%pull(avg_TRD_VZ),TRD_plot_ready%>%filter(Typ=="P")%>%pull(avg))
+
+
+bind_rows(
+  tibble(Typ="Q",evaluate_model_adjusted(TRD_plot_ready%>%filter(Typ=="Q"),obs = "avg_TRD_VZ",pred = "avg")),
+  tibble(Typ="R",evaluate_model_adjusted(TRD_plot_ready%>%filter(Typ=="R"),obs = "avg_TRD_VZ",pred = "avg")),
+  tibble(Typ="P",evaluate_model_adjusted(TRD_plot_ready%>%filter(Typ=="P"),obs = "avg_TRD_VZ",pred = "avg"))
+)%>%View
+
+
+
+TRD_prep%>%
+  group_by(BDF,Horizont,Typ)%>%
+  summarise(avg_TRD=mean(A_all,na.rm = T),
+            min_TRD=min(A_all,na.rm = T),
+            max_TRD=max(A_all,na.rm = T),
+            n=length(na.omit(A_all)))%>%
+  select(-c(min_TRD,max_TRD,n))%>%
+  pivot_wider(names_from =Typ,values_from = avg_TRD)->tmp
+
+cor.test(tmp$P,tmp$Q,use="pairwise.complete.obs",method="s")
+
+
+################################################################################################################################################################################################################
+# end of insert ####
+################################################################################################################################################################################################################
+
 
 
 
@@ -4773,6 +5138,30 @@ bind_rows(tibble(out_test,dataset="Test sets"),
   group_by(dataset,model,size,name)%>%
   summarise(across(value,.fns = list(min=min,max=max,mean=mean,median=median)))%>%view
 
+
+##### rmse ratio acc. to Ng etal 2020
+bind_rows(tibble(out_test,dataset="Test sets"),
+          tibble(out,dataset="DE-2023-BDF_archive"))%>%
+  mutate(model=str_split_fixed(model_type,"_",2)[,1],
+         rep=str_split_fixed(model_type,"_",4)[,4])%>%pivot_longer(cols = c(rmse,
+                                                                            rpd,
+                                                                            R2,
+                                                                            #linsCCC,
+                                                                            bias))%>%
+  select(dataset,name,rep,value,model,size)%>%
+  pivot_wider(names_from = c(model,name),values_from = value)%>%
+  filter(dataset=="DE-2023-BDF_archive")%>%
+  mutate(pls_svm=pls_rmse/svmLin_rmse,
+         pls_cubist=pls_rmse/cubist_rmse,
+         pls_rf=pls_rmse/rf_rmse,
+         cubist_svm=cubist_rmse/svmLin_rmse,
+         cubist_rf=cubist_rmse/rf_rmse,
+         rf_svm=rf_rmse/svmLin_rmse)%>%
+  pivot_longer(cols=c(pls_svm,pls_cubist,pls_rf,cubist_svm,cubist_rf,rf_svm))%>%
+  ggplot(aes(x=size,y=value,group=size))+
+  geom_hline(yintercept = 1)+
+  geom_boxplot()+
+  facet_wrap(~name)
 
 
 
