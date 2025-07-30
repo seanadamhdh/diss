@@ -142,12 +142,23 @@
     
     
     BDF_SSL=
-      left_join(Campaign%>%rename(Campaign=`Campaign Label`),Event_table)%>%
-      left_join(Data_table_reference)%>%
-      left_join(Data_table_soliTOC)%>%
-      left_join(Data_table_field_analysis)%>%
+      left_join(Campaign%>%rename(Campaign=`Campaign Label`),Event_table,by="Campaign")%>%
+      left_join(Data_table_reference,by="LabelEvent")%>%
+      left_join(Data_table_soliTOC,by="LabelEvent")%>%
+      left_join(Data_table_field_analysis,by="LabelEvent",suffix = c("","f"))%>%
+mutate(`S [wt-%]` = if_else(Campaign=="DE-2023-BDF_field",`S [wt-%]f`,`S [wt-%]`),
+       `U [wt-%]` = if_else(Campaign=="DE-2023-BDF_field",`U [wt-%]f`,`U [wt-%]`),
+       `T [wt-%]` = if_else(Campaign=="DE-2023-BDF_field",`T [wt-%]f`,`T [wt-%]`),
+       `fU [wt-%]` = if_else(Campaign=="DE-2023-BDF_field",`fU [wt-%]f`,`fU [wt-%]`),
+       `mU [wt-%]` = if_else(Campaign=="DE-2023-BDF_field",`mU [wt-%]f`,`mU [wt-%]`),
+       `gU [wt-%]` = if_else(Campaign=="DE-2023-BDF_field",`gU [wt-%]f`,`gU [wt-%]`),
+       `fS [wt-%]` = if_else(Campaign=="DE-2023-BDF_field",`fS [wt-%]f`,`fS [wt-%]`),
+       `mS [wt-%]` = if_else(Campaign=="DE-2023-BDF_field",`mS [wt-%]f`,`mS [wt-%]`),
+       `gS [wt-%]`= if_else(Campaign=="DE-2023-BDF_field",`gS [wt-%]f`,`gS [wt-%]`)
+       )%>%
+      select(-contains("]f"))%>%
       left_join(tibble(LabelEvent=Data_table_DRIFTS$LabelEvent,
-                       spc_rs=Data_table_DRIFTS[-1]))
+                       spc_rs=Data_table_DRIFTS[-1]),by="LabelEvent")
     
     
     tibble(LabelEvent=Data_table_DRIFTS$LabelEvent,
@@ -275,7 +286,6 @@ bg_colors <- setNames(
                           `BDF30`="BDF30 (Grassland, Elbe river valley floodplain)",
                           `BDF35`="BDF35 (Cropland, Northern reaches of the Ore Mountains)")
   }
-  
   
   data=BDF_SSL%>%filter(Campaign%>%str_detect("field")&is.na(Flag))%>%
     group_by(site_id, Profile, Depth_top, Depth_bottom, Device) %>%
@@ -501,7 +511,10 @@ ggplot(data,aes(x=`Size fraction >2 mm [wt-%]`))+
   theme_minimal()->rel_dB_effect
 
 #plot
-ggsave(plot=rel_dB_effect+theme(legend.position = "none"),filename="Relative_dB_effect.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width =4,height = 4)
+ggsave(plot=rel_dB_effect+theme(legend.position = "none")+geom_rect(aes(xmin=0,xmax=5,ymin =-5,ymax=5),fill=rgb(.5,0,0,.01),color=rgb(.5,0,0,1)),filename="Relative_dB_effect.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width =4,height = 4)
+ggsave(plot=rel_dB_effect+coord_cartesian(xlim = c(0,5),ylim = c(-5,5))+theme(legend.position = "none"),filename="Relative_dB_effect_zoom.png",
+       path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 3,height = 3)
+
 #legend
 ggsave(plot=get_legend(rel_dB_effect),filename="Relative_dB_effect_legend.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 4,height = 4)
 
@@ -593,9 +606,9 @@ ggsave(filename="TOC_test_diff_depth.png",path="C:/Users/adam/Desktop/UNI/PhD/DI
 
 ggstatsplot::grouped_ggbetweenstats(data = data_1cm%>%filter(set%in%c("0-10 cm","10-30 cm", "30-50 cm")),x=site_id,y=`TOC [wt-%]`,grouping.var = set,type="np")#%>%
 
-################################################################################################################################################################################################################
+############################################################################################################################################################################################################### #
 # insert ####
-################################################################################################################################################################################################################
+############################################################################################################################################################################################################### #
 
 # LOAD ####
 
@@ -608,43 +621,46 @@ ggstatsplot::grouped_ggbetweenstats(data = data_1cm%>%filter(set%in%c("0-10 cm",
 {
   # TRD measuerd traditionally (soil cylinders) by us in the scope of the sampling campaign
   Lagerungsdichte_Referenz_neu <- read_excel(paste0(data_dir,"/Sean_Environment/BDF/BDF-SSL/1_data/3_physik/Adam-2024_VZ-TRD.xlsx"))
-  TRD_neu=left_join(
-    Lagerungsdichte_Referenz_neu%>%mutate(Tiefe_avg=(`Tiefe von`+`Tiefe bis`)/2)%>%
-      group_by(BDF=`BDF-Fläche`,Horizont,`Tiefe von`,`Tiefe bis`,Tiefe_avg)%>%
-      summarise(minTRD=min(`TRD g/cm3`),maxTRD=max(`TRD g/cm3`),TRD=mean(`TRD g/cm3`)),
-    
-    #manually assigning Horizont for merge
-    data%>%
-      mutate(
-             Horizont=case_match(site_id,
-                                 "02"~case_match(as.character(Depth_top),
-                                                 "6"~"Ap",
-                                                 "20"~"rAp",
-                                                 "35"~"aM",
-                                                 "65"~"II aM"
-                                 ),
-                                 "23"~case_match(as.character(Depth_top),
-                                                 "2"~"Ap",
-                                                 "38"~"Sw-Bv"),
-                                 "30"~case_match(as.character(Depth_top),
-                                                 "4"~"aAxh",
-                                                 "30"~"aAxh_2",
-                                                 "54"~"Axh-aM"
-                                 ),
-                                 "35"~case_match(as.character(Depth_top),
-                                                 "5"~"Ap",
-                                                 "20"~"rAp",
-                                                 "38"~"Sw",
-                                                 "65"~"Sdw"
-                                 )
-             )
-      ),
-    by=c(
-      "BDF"="site_id",
-      "Horizont"="Horizont"
-    )
-  )
-  
+  # TRD_neu=left_join(
+  #   Lagerungsdichte_Referenz_neu%>%mutate(Depth_avg=(`Tiefe von`+`Tiefe bis`)/2,site_id=paste0("BDF",`BDF-Fläche`))%>%
+  #     group_by(site_id,`Soil horizon`=Horizont,Depth_top=`Tiefe von`,Depth_bottom=`Tiefe bis`,Depth_avg)%>%
+  #     summarise(minTRD=min(`TRD g/cm3`),maxTRD=max(`TRD g/cm3`),TRD=mean(`TRD g/cm3`)),
+  #   
+  #   #manually assigning Horizont for merge
+  #   data%>%select(-contains("spc"))%>%
+  #     mutate(
+  #           `Soil horizon`=case_match(site_id,
+  #                                "BDF02"~case_match(as.character(Depth_top),
+  #                                                "6"~"Ap",
+  #                                                "20"~"rAp",
+  #                                                "35"~"aM",
+  #                                                "65"~"II aM"
+  #                                ),
+  #                                
+  #                                "BDF23"~case_match(as.character(Depth_top),
+  #                                                "2"~"Ap",
+  #                                                "38"~"Sw-Bv"),
+  #                                
+  #                                "BDF30"~case_match(as.character(Depth_top),
+  #                                                "4"~"aAxh",
+  #                                                "30"~"aAxh_2",
+  #                                                "54"~"Axh-aM"
+  #                                ),
+  #                                
+  #                                "BDF35"~case_match(as.character(Depth_top),
+  #                                                "5"~"Ap",
+  #                                                "20"~"rAp",
+  #                                                "38"~"Sw",
+  #                                                "65"~"Sdw"
+  #                                )
+  #            )
+  #     ),
+  #   by=c(
+  #     "site_id",
+  #     "Soil horizon"
+  #   )
+  # )
+  # 
 }
 
 
@@ -652,10 +668,14 @@ ggstatsplot::grouped_ggbetweenstats(data = data_1cm%>%filter(set%in%c("0-10 cm",
 
 pivot_wider(Lagerungsdichte_Referenz_neu%>%
               mutate(No=rep(c(1:5),13))%>%
-              select(-Stechzylindernummer,-Größe),names_from=No, names_prefix = "VZ_", values_from = `TRD g/cm3`)->VZ_ref
+              select(-Stechzylindernummer,-Größe),
+            names_from=No,
+            names_prefix = "VZ_", 
+            values_from = `TRD g/cm3`)->VZ_ref
+
 
 #View(VZ_ref)
-
+# assigning reference VZ samples to other sampling methods
 data%>%filter(!substr(LabelEvent,2,2)=="G")%>%mutate(
                        VZ_ref_ID=case_match(site_id,
                                             "BDF02"~case_when(
@@ -769,124 +789,143 @@ prep%>%filter(set=="Q")%>%
 
 # new approach ####
 #' Aggegieren der TRD-Daten für Atro_all (einzig wirklich vergleichbare Daten)
-##########################################################################
+######################################################################### #
 RK_diameter=6.35 #cm ~2.5 inch (V = pi * RK_diameter^2 / 4 * (Tiefe_bis - Tiefe_von))
 RK_area=(RK_diameter/2)**2*3.1415926 #cm2 (V per 1cm Höhe)
 QS_vol=66 #cm³ known syringe volume
 PS_area=a=8*2 #cm2 (V per 1cm Höhe) (width*depth, V = PS_area * (Tiefe_bis - Tiefe_von))
 
-#####################################################################################################################################################################################################################
-# bookmark, fixed till here ####
-#####################################################################################################################################################################################################################
+BDF_SSL%>%filter(substr(LabelEvent,2,2)%in%c("Q","R","P"))%>%filter(is.na(Flag))%>%
 
-BDF_frisch%>%unnest(TRD,names_sep = "_")%>%unnest(sampling_data,names_sep = "_")%>%
-  filter(!is.na(TRD_BDF)&!str_starts(sample_id,"LG"))%>%
-  transmute(Typ=sample_id %>%substr(2,2),
-            Horizont=case_match(sampling_data_BDF,
-                                "02"~case_when(
-                                  sampling_data_Tiefe_von%in%c(0:15)&sampling_data_Tiefe_bis%in%c(0:15)~"Ap",
-                                  sampling_data_Tiefe_von%in%c(15:32)&sampling_data_Tiefe_bis%in%c(15:32)~"rAp",
-                                  sampling_data_Tiefe_von%in%c(32:50)&sampling_data_Tiefe_bis%in%c(32:50)~"aM",
-                                  sampling_data_Tiefe_von%in%c(50:102)&sampling_data_Tiefe_bis%in%c(50:102)~"II aM"),
-                                "23"~ case_when(
-                                  sampling_data_Tiefe_von%in%c(0:20)&sampling_data_Tiefe_bis%in%c(0:20)~"Ap",
-                                  sampling_data_Tiefe_von%in%c(20:70)&sampling_data_Tiefe_bis%in%c(20:70)~"Sw-Bv"),
-                                "30"~ case_when(
-                                  sampling_data_Tiefe_von%in%c(0:10)&sampling_data_Tiefe_bis%in%c(0:10)~"aAxh",
-                                  sampling_data_Tiefe_von%in%c(10:45)&sampling_data_Tiefe_bis%in%c(10:45)~"aAxh_2",
-                                  sampling_data_Tiefe_von%in%c(45:90)&sampling_data_Tiefe_bis%in%c(45:90)~"Axh-aM"),
-                                "35"~ case_when(
-                                  sampling_data_Tiefe_von%in%c(0:20)&sampling_data_Tiefe_bis%in%c(0:20)~"Ap",
-                                  sampling_data_Tiefe_von%in%c(20:30)&sampling_data_Tiefe_bis%in%c(20:30)~"rAp",
-                                  sampling_data_Tiefe_von%in%c(30:60)&sampling_data_Tiefe_bis%in%c(30:60)~"Sw",
-                                  sampling_data_Tiefe_von%in%c(60:80)&sampling_data_Tiefe_bis%in%c(60:80)~"Sdw")
+#BDF_frisch%>%unnest(TRD,names_sep = "_")%>%unnest(sampling_data,names_sep = "_")%>%
+#  filter(!is.na(TRD_BDF)&!str_starts(sample_id,"LG"))%>%
+  transmute(Device,
+            Typ=substr(Device,1,1),
+            site_id,
+            Depth_top,
+            Depth_bottom,
+            Profile,
+            `dB_105 [g/cm3]`,
+            `Soil horizon`=case_match(site_id,
+                                      
+                                      "BDF02" ~ case_when(
+                                        Depth_top < 0.15 & Depth_bottom <= 0.15 ~ "Ap",
+                                        Depth_top >= 0.15 & Depth_top < 0.32 & Depth_bottom > 0.15 & Depth_bottom <= 0.32 ~ "rAp",
+                                        Depth_top >= 0.32 & Depth_top < 0.50 & Depth_bottom > 0.32 & Depth_bottom <= 0.50 ~ "aM",
+                                        Depth_top >= 0.50 & Depth_top < 1.02 & Depth_bottom > 0.50 & Depth_bottom <= 1.02 ~ "II aM"
+                                      ),
+                                      
+                                      "BDF23" ~ case_when(
+                                        Depth_top < 0.20 & Depth_bottom <= 0.20 ~ "Ap",
+                                        Depth_top >= 0.20 & Depth_top < 0.70 & Depth_bottom > 0.20 & Depth_bottom <= 0.70 ~ "Sw-Bv"
+                                      ),
+                                      
+                                      "BDF30" ~ case_when(
+                                        Depth_top < 0.10 & Depth_bottom <= 0.10 ~ "aAxh",
+                                        Depth_top >= 0.10 & Depth_top < 0.45 & Depth_bottom > 0.10 & Depth_bottom <= 0.45 ~ "aAxh_2",
+                                        Depth_top >= 0.45 & Depth_top < 0.90 & Depth_bottom > 0.45 & Depth_bottom <= 0.90 ~ "Axh-aM"
+                                      ),
+                                      
+                                      "BDF35" ~ case_when(
+                                        Depth_top < 0.20 & Depth_bottom <= 0.20 ~ "Ap",
+                                        Depth_top >= 0.20 & Depth_top < 0.30 & Depth_bottom > 0.20 & Depth_bottom <= 0.30 ~ "rAp",
+                                        Depth_top >= 0.30 & Depth_top < 0.60 & Depth_bottom > 0.30 & Depth_bottom <= 0.60 ~ "Sw",
+                                        Depth_top >= 0.60 & Depth_top < 0.80 & Depth_bottom > 0.60 & Depth_bottom <= 0.80 ~ "Sdw"
+                                      )
             ),
-            BDF=TRD_BDF,
-            Tiefe_von=sampling_data_Tiefe_von,
-            Tiefe_bis=sampling_data_Tiefe_bis,
-            dh=Tiefe_bis-Tiefe_von,
+            dh=Depth_bottom-Depth_top,
             vol=case_match(Typ,
                            "Q"~QS_vol,
                            "R"~dh*RK_area,
                            "P"~dh*PS_area),
-            vol_corr=vol-(TRD_Skelett/2.65),
-            L_fb=TRD_Lutro_density_FB,
-            L_fb_corr=TRD_FB_LUTRO/vol_corr,
-            L_all=TRD_Lutro_density_all,
-            L_fb_corr=TRD_FB_LUTRO/vol_corr,
-            A_fb=TRD_Atro_density_FB,
-            A_fb_corr=TRD_FB_ATRO/vol_corr,
-            A_all=TRD_Atro_density_all
+            vol_corr=vol-(`Size fraction >2 mm [wt-%]`/2.65)
   )%>%bind_rows(
-    Lagerungsdichte_Referenz_neu%>%#
+    Lagerungsdichte_Referenz_neu%>%
       transmute(vol=`Größe`,
-                Horizont=Horizont,
-                BDF=`BDF-Fläche`,
-                Tiefe_von=`Tiefe von`,
-                Tiefe_bis=`Tiefe bis`,
-                A_all=`TRD g/cm3`,
+                `Soil horizon`=Horizont,
+                site_id=paste0("BDF",`BDF-Fläche`),
+                Depth_top=`Tiefe von`/100,
+                Depth_bottom=`Tiefe bis`/100,
+                `dB_105 [g/cm3]`=`TRD g/cm3`,
                 Typ="VZ"))->TRD_prep
 
 
 (
-  TRD_prep%>%group_by(Typ,BDF,Horizont)%>%
-    summarise(v=var(A_all))%>%
+  TRD_prep%>%group_by(Typ,site_id,`Soil horizon`)%>%
+    summarise(v=var(`dB_105 [g/cm3]`,na.rm = T))%>%
     ggplot(aes(x=Typ,y=v,fill=Typ))+
     geom_boxplot(alpha=.5,outliers = F)+
     geom_point(shape=4,alpha=.5,position=position_jitter(width = .25))+
     scale_fill_colorblind()+
     theme_pubr()+
     theme(legend.position = "none")+
-    ylab("Varianz der Trockenrohdichte")+
-    scale_x_discrete(breaks=c("P","Q","R","VZ"),labels=c("Profilspaten (n=6)",
+    ylab("Bulk density variance")+
+    scale_x_discrete("Sampling method",breaks=c("P","Q","R","VZ"),labels=c("Sampling spade (n=6)",
                                                          "Quicksampler (n=14)",
-                                                         "Rammkern (n=17)",
-                                                         "Stechzylinder (n=13)"))+
+                                                         "Push core (n=17)",
+                                                         "Soil rings (n=13)"))+
     coord_flip())#%>%
 
 
+ggplot(TRD_prep%>%filter(!is.na(`Soil horizon`)),
+       aes(x=Typ,group=Typ,y=`dB_105 [g/cm3]`))+
+  geom_boxplot()+
+  facet_wrap(~paste(site_id,`Soil horizon`))
 
 ggsave(filename="TRD_Varianz_Probenahmetyp.png",width=6,height = 2,
-       device = "png",path = paste0(code_dir,"GitLab/phd_code/R_main/temp/"))
+       device = "png",path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/")
 
 
 (
-  TRD_prep%>%group_by(Typ,BDF,Horizont)%>%
-    summarise(v=var(A_all))%>%
-    ggplot(aes(x=Typ,y=sqrt(v),fill=Typ))+
+  TRD_prep%>%group_by(Typ,site_id,`Soil horizon`)%>%
+    summarise(sdev=sd(`dB_105 [g/cm3]`))%>%
+    ggplot(aes(x=Typ,y=sdev,fill=Typ))+
     geom_boxplot(alpha=.5,outliers = F)+
     geom_point(shape=4,alpha=.5,position=position_jitter(width = .25))+
     scale_fill_colorblind()+
     theme_pubr()+
-    theme(legend.position = "none")+
-    ylab("Standardabweichung der Trockenrohdichte [g/cm³]")+
-    scale_x_discrete(breaks=c("P","Q","R","VZ"),labels=c("Profilspaten (n=6)",
-                                                         "Quicksampler (n=14)",
-                                                         "Rammkern (n=17)",
-                                                         "Stechzylinder (n=13)"))+
-    coord_flip())#%>%
-ggsave(filename="TRD_sd_Probenahmetyp.png",width=6,height = 2,
-       device = "png",path = paste0(code_dir,"GitLab/phd_code/R_main/temp/"))
+    theme(legend.position = "none",axis.title.y = element_blank())+
+    ylab("Standard deviation of bulk density")+
+    scale_x_discrete("Sampling method",breaks=c("P","Q","R","VZ"),labels=c("Sampling spade (n=6)",
+                                                                           "Quicksampler (n=14)",
+                                                                           "Push core (n=17)",
+                                                                           "Soil rings (n=13)"))+
+    coord_flip())%>%
+ggsave(filename="TRD_sd_Probenahmetyp.png",width=7,height = 2,
+       device = "png",path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/")
 
 
-ggstatsplot::ggbetweenstats(TRD_prep%>%group_by(Typ,Horizont)%>%
-                              summarise(v=var(A_all)),x=Typ,y=v)
 
-ggstatsplot::ggbetweenstats(TRD_prep%>%group_by(Typ,Horizont)%>%
+### stats tables ####
+TRD_prep%>%group_by(Typ,site_id,`Soil horizon`)%>%
+  summarise(sdev=sd(`dB_105 [g/cm3]`))%>%summarise_metrics(grouping_variables = "Typ",variables = "sdev")
+
+TRD_prep
+
+
+#################################################################################################################################################################################################################### #
+# bookmark, fixed till here ####
+#################################################################################################################################################################################################################### #
+
+ggstatsplot::ggbetweenstats(TRD_prep%>%group_by(Typ,site_id,`Soil horizon`)%>%
+                              summarise(sdev=sd(`dB_105 [g/cm3]`)),x=Typ,y=sdev,type = "np")
+
+ggstatsplot::ggbetweenstats(TRD_prep%>%group_by(Typ,site_id,Horizont)%>%
                               summarise(TRD=(A_all)),x=Typ,y=TRD)
 
-TRD_prep%>%
-  group_by(BDF,Horizont,Typ)%>%
-  summarise(avg_TRD=mean(A_all,na.rm = T),
-            min_TRD=min(A_all,na.rm = T),
-            max_TRD=max(A_all,na.rm = T),
-            n=length(na.omit(A_all))
+
+# note soil horizon is NA when data coverage is lacking / samples were taken from crossover - not assigned to either
+TRD_prep%>%#pull(site_id)
+  
+  group_by(Typ,site_id,`Soil horizon` )%>%
+  summarise(avg_TRD=mean(`dB_105 [g/cm3]`,na.rm = T),
+            min_TRD=min(`dB_105 [g/cm3]`,na.rm = T),
+            max_TRD=max(`dB_105 [g/cm3]`,na.rm = T),
+            n=length(na.omit(`dB_105 [g/cm3]`))
   )%>%select(-n)%>% # n removed for plotting pipeline
-  na.omit%>% # rm Horizons without VZ
+  na.omit%>% #rm Horizons without VZ
   pivot_wider(names_from = Typ,values_from = c(avg_TRD,min_TRD,max_TRD))%>%
-  pivot_longer(cols=c(avg_TRD_P,avg_TRD_Q,avg_TRD_R,
-                      min_TRD_P,min_TRD_Q,min_TRD_R,
-                      max_TRD_P,max_TRD_Q,max_TRD_R))%>%
+  pivot_longer(cols=contains(c("avg_TRD","min_TRD","max_TRD"))&!contains("VZ"))%>%
   mutate(metric=str_split_fixed(name,"_",3)[,1],
          Typ=str_split_fixed(name,"_",3)[,3])%>%select(-name)%>%
   pivot_wider(names_from = metric,values_from = value)->TRD_plot_ready
@@ -894,15 +933,15 @@ TRD_prep%>%
 
 (
   TRD_plot_ready%>%
-    ggplot(aes(x=avg_TRD_VZ,col=BDF,fill=BDF,shape=BDF))+
+    ggplot(aes(x=avg_TRD_VZ,col=site_id,fill=site_id,shape=site_id))+
     geom_abline(slope=1,linetype="dotted")+
     geom_smooth(method="glm",aes(x=avg_TRD_VZ,y=avg,group=Typ),alpha=.2)+  
     geom_point(aes(y=avg),size=4,alpha=.5)+
     geom_errorbar(aes(y=avg,ymin=min,ymax=max),width=.02,alpha=.5)+
     geom_errorbar(aes(y=avg,xmin=min_TRD_VZ,xmax=max_TRD_VZ),width=.02,alpha=.5)+
-    scale_shape_manual("Standort",breaks=c("02","23","30","35"),labels=c("BDF02","BDF23","BDF30","BDF35"),values = c(21:25))+
-    scale_fill_manual("Standort",breaks=c("02","23","30","35"),labels=c("BDF02","BDF23","BDF30","BDF35"),values = colorblind_safe_colors[c(1:4)])+
-    scale_color_manual("Standort",breaks=c("02","23","30","35"),labels=c("BDF02","BDF23","BDF30","BDF35"),values = colorblind_safe_colors[c(1:4)])+
+    scale_shape_manual("BDF site",breaks=c("BDF02","BDF23","BDF30","BDF35"),labels=c("BDF02","BDF23","BDF30","BDF35"),values = c(21:25))+
+    scale_fill_manual("BDF site",breaks=c("BDF02","BDF23","BDF30","BDF35"),labels=c("BDF02","BDF23","BDF30","BDF35"),values = colorblind_safe_colors()[c(1:4)])+
+    scale_color_manual("BDF site",breaks=c("BDF02","BDF23","BDF30","BDF35"),labels=c("BDF02","BDF23","BDF30","BDF35"),values = colorblind_safe_colors()[c(1:4)])+
     theme_pubr()+
     # geom_label(data=tibble(x=rep(1.5,3),
     #                        y=rep(2.5,3),
@@ -913,15 +952,13 @@ TRD_prep%>%
     #                        BDF="NA"),
     #            aes(x=x,y=y,label=label),
     #            col="black",fill="white")+
-    xlab("Stechzylinder TRD [g/cm³]")+
-    ylab("Verglichenen Methode TRD [g/cm³]")+
-    facet_wrap(~case_match(Typ,"P"~"Profilspaten","Q"~"Quicksampler","R"~"Rammkern"))+
-    ggtitle("Vergleich mittleren TRD der beprobten Horizonte")
-)#%>%
-
-
-ggsave(filename="TRD_scatter_VZ_vs_RK-PS-QS.png",width=8,height = 4,
-       device = "png",path = paste0(code_dir,"GitLab/phd_code/R_main/temp/"))
+    xlab("Bulk density reference (soil rings) [g/cm³]")+
+    ylab("Bulk density [g/cm³]")+
+    facet_wrap(~case_match(Typ,"P"~"Sampling spade","Q"~"Quicksampler","R"~"Push core"))+
+    ggtitle("Comparison of bulk density between sampling methods")+
+    theme(legend.position = "inside",legend.position.inside = c(.35,.9),legend.direction = "horizontal"))%>%
+ggsave(filename="TRD_scatter_VZ_vs_RK-PS-QS.png",width=7,height = 4,
+       device = "png",path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/")
 
 
 
@@ -954,9 +991,206 @@ TRD_prep%>%
 cor.test(tmp$P,tmp$Q,use="pairwise.complete.obs",method="s")
 
 
-################################################################################################################################################################################################################
+
+
+
+
+
+### TRD aggregation ####
+cm_aggregate(TRD_prep,depth_top_col = "Depth_top",
+             depth_bottom_col = "Depth_bottom",
+             group_list = c("site_id","Typ"),
+             aggregate_list = c("dB_105 [g/cm3]"),res_out = .05)->TRD_prep_agg
+
+
+
+
+
+
+
+TRD_prep_agg%>%filter(Typ!="P")%>%
+  mutate(depth_class=case_when(u3<=.150001~"15",
+                               u3>.150001&u3<=.30001~"30",
+                               u3>.30001&u3<=.50001~"50",
+                               .default = "else"))%>%
+  summarise_metrics(variables = "dB_105 [g/cm3]",
+                    grouping_variables = c("site_id","depth_class"))%>%view("site top")
+
+
+
+
+
+
+ggplot(TRD_prep_agg,aes(x=(o3+u3)/2,y=`dB_105 [g/cm3]`,fill=Typ,group=paste((o3+u3)/2,Typ)))+
+  geom_boxplot(alpha=.1)+
+  coord_flip()+
+  scale_x_reverse()
+
+
+
+
+
+ggplot(
+)+
+  #manual gridlines
+  #   geom_hline(yintercept = seq(.6,2.8,.1),col="grey15",linewidth=.025)+
+  #  geom_vline(xintercept = seq(0,150,10),col="grey15",linewidth=.025)+
+  # geom_vline(xintercept = 0,linewidth=.2,col="black")+
+  # BDF Ref  
+  geom_line(data = filter(Lagerungsdichte_Referenz,Tiefe<=150)%>%mutate(site_id=paste0("BDF",BDF)),
+            aes(x=Tiefe/100,
+                y=TRD, # 10e-2 g/cm³ | 1ha =10e8 cm² , 1 T = 10^6 g -> 1 10^-2g/cm³ = 1 T/ha*cm
+                color="BDF-Referenz",
+                linetype="BDF-Referenz",
+                shape="BDF-Referenz"
+            ),
+            linewidth=1,
+  )+
+  
+  
+  # RK PS QS
+  geom_line(data=data%>%filter(LabelEvent%>%substr(2,2)%in%c("R","Q","P")&Depth_bottom>0),
+            aes(
+              x=(Depth_bottom+Depth_top)/2,
+              y=`dB_105 [g/cm3]`,# same as weighed for TOC determination
+              color=Device,
+              linetype=Device,
+              shape=Device,
+              group=paste(site_id,Device,Profile)),
+            linewidth=.25)+
+  # geom_smooth(data=data%>%filter(LabelEvent%>%substr(2,2)%in%c("R","Q","P")&Depth_bottom>=0), 
+  #             aes(
+  #               x=(Depth_bottom+Depth_top)/2,
+  #               y=`TOC [wt-%]`,   # same as weighed for TOC determination
+  #               color=Device,
+  #               linetype=Device,
+  #               shape=Device,
+  #               group=paste(site_id,Device)),
+  #             se=F,linewidth=1,inherit.aes = T)+
+  
+  
+  geom_line(data=TUBAFsoilFunctions::cm_aggregate(
+    dataset = data%>%filter(LabelEvent%>%substr(2,2)%in%c("R","Q","P")&Depth_bottom>0),
+    depth_top_col = "Depth_top",
+    depth_bottom_col = "Depth_bottom",
+    aggregate_list = "dB_105 [g/cm3]",
+    group_list = c("Device","site_id"),
+    res_out = .05), 
+    aes(
+      x=(o3+u3)/2,
+      y=`dB_105 [g/cm3]`,   
+      linetype=Device,
+      color=Device,
+      shape=Device,
+      group=paste(site_id,Device)),
+    linewidth=1
+  )+
+  # geom_point(data=TRD_prep%>%filter(Typ=="VZ")%>%
+  #              group_by(site_id,`Soil horizon`)%>%
+  #              summarise(Depth_top=mean(Depth_top,na.rm=T),
+  #                        Depth_bottom=mean(Depth_bottom,na.rm=T),
+  #                        `dB_105 [g/cm3]`=mean(`dB_105 [g/cm3]`,na.rm=T)),
+  #            aes(
+  #              x=(Depth_bottom+Depth_top)/2,
+  #              y=`dB_105 [g/cm3]`,  
+  #              color="neu",
+  #              linetype="neu",
+  #              shape="neu"
+  #            ),
+  #            size=2,
+  #            stroke=2)+
+  geom_errorbar(data=TRD_prep%>%filter(Typ=="VZ")%>%
+               group_by(site_id,`Soil horizon`)%>%
+               summarise(Depth_top=mean(Depth_top,na.rm=T),
+                         Depth_bottom=mean(Depth_bottom,na.rm=T),
+                         n=n(),
+                         mean_dB=mean(`dB_105 [g/cm3]`,na.rm=T),
+                         min_dB=min(`dB_105 [g/cm3]`,na.rm=T),
+                         max_dB=max(`dB_105 [g/cm3]`,na.rm=T)),
+             aes(
+               x=(Depth_bottom+Depth_top)/2,
+               y=mean_dB,  
+               ymin=min_dB,
+               ymax=max_dB,
+               color="neu",
+               linetype="neu",
+               shape="neu",
+               width=(Depth_bottom-Depth_top)
+             ),
+             linewidth=1
+             )+
+  
+  geom_point(data=TRD_prep%>%filter(Typ=="VZ")%>%
+                  group_by(site_id,`Soil horizon`)%>%
+                  summarise(Depth_top=mean(Depth_top,na.rm=T),
+                            Depth_bottom=mean(Depth_bottom,na.rm=T),
+                            n=n(),
+                            mean_dB=mean(`dB_105 [g/cm3]`,na.rm=T),
+                            min_dB=min(`dB_105 [g/cm3]`,na.rm=T),
+                            max_dB=max(`dB_105 [g/cm3]`,na.rm=T)),
+                aes(
+                  x=(Depth_bottom+Depth_top)/2,
+                  y=mean_dB,  
+                  # ymin=min_dB,
+                  # ymax=max_dB,
+                  color="neu",
+                  linetype="neu",
+                  shape="neu"#,
+                  #width=(Depth_bottom-Depth_top)
+                ),
+                linewidth=1
+  )+
+  #formatting
+  coord_flip(xlim=c(1.50,0),
+             ylim=c(0.6,2.3))+
+  scale_x_reverse("Depth [m]",
+                  breaks=seq(0,1.50,.50),
+                  minor_breaks=seq(0,1.50,.10))+
+  #scale_color_manual(breaks=c("02","23","30","35"),values=colorblind_safe_colors()[c(2:4,8)],labels=paste("BDF",c("02","23","30","35")))+
+  scale_linetype_manual("",
+                        breaks=c("neu","BDF-Referenz","Profilspaten","Quicksampler","Rammkern"),
+                        values=c("solid","solid","dotdash","dashed","dotted"),
+                        labels=c("Soil rings (reference)","Reference (Forberg and Barth, 2020)","Sampling spade","Quicksampler","Push core"))+
+  scale_shape_manual("",
+                     breaks=c("neu","BDF-Referenz","Profilspaten","Quicksampler","Rammkern"),
+                     values=c(4,1,1,1,1),
+                     labels=c("Soil rings (reference)","Reference (Forberg and Barth, 2020)","Sampling spade","Quicksampler","Push core"))+
+  
+  # scale_alpha_manual("",
+  #                      breaks=c("neu","BDF-Referenz","Profilspaten","Quicksampler","Rammkern"),
+  #                      values=c(1,1,1,1,1),
+  #                      labels=c("Disturbed samples","Reference (Forberg and Barth, 2020)","Sampling spade","Quicksampler","Push core"))+
+  scale_color_manual("",
+                     breaks=c("neu","BDF-Referenz","Profilspaten","Quicksampler","Rammkern"),
+                     values = c(colorblind_safe_colors()[c(6,7)],"black","black","black"),
+                     labels=c("Soil rings (reference)","Reference (Forberg and Barth, 2020)","Sampling spade","Quicksampler","Push core"))+
+  scale_y_continuous("Bulk density [g/cm3]")+
+  theme_pubr()+
+  geom_vline(xintercept = 0,color="grey50")+
+  theme(legend.box="vertical",
+        legend.position = "right",
+        #panel.grid = element_line(colour = "grey"),
+        panel.grid.major = element_line(colour = "grey",linewidth = .05),
+        panel.grid.minor = element_line(colour = "grey",linewidth = .05,linetype = "dotted")
+  )+
+  ggh4x::facet_wrap2(facets = vars(site_id),
+                     labeller = BDF_labeller,
+                     scales = "fixed",nrow = 2,
+                     axes="all",
+                     remove_labels = "all")->p
+#ggplotly(p)
+p
+#plot
+ggsave(plot=p+theme(legend.position = "none"),filename="db profile.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 8)
+#legend
+ggsave(plot=get_legend(p),filename="db profile_legend.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 8)
+
+
+
+
+################################################################################################################################################################################################################# #
 # end of insert ####
-################################################################################################################################################################################################################
+############################################################################################################################################################################################################### #
 
 
 
