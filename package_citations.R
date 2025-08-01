@@ -30,3 +30,29 @@ citation("ggtern")
 citation("soiltexture")
 citation("resemble")
 
+
+
+# Used in TUBAFsoilPkg
+
+print(citation("Cubist"),bibtex=T)->tmp
+c(
+citation("DescTools"),
+citation("caret"),
+citation("e1071"),
+citation("ggpubr"),
+citation("lifecycle"),
+citation("plotly"),
+citation("pls"),
+citation("progress"),
+citation("prospectr"),
+citation("resemble"),
+citation("simplerspec"),
+citation("tidyverse"),
+citation("useful"),
+citation("utils"),
+citation("devtools"),
+citation("pkgdown"),
+citation("roxygen2")
+)%>%toBibtex()
+
+
