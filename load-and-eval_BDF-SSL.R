@@ -682,34 +682,34 @@ data%>%filter(!substr(LabelEvent,2,2)=="G")%>%mutate(
                                             "BDF02"~case_when(
                                               
                                               Depth_top<.15&
-                                                Depth_bottom<=.15~"LGAJ",
+                                                Depth_bottom<=.150001~"LGAJ",
                                               
                                               Depth_top>=.15&
-                                                Depth_top<.32&
+                                                Depth_top<.320001&
                                                 Depth_bottom>.15&
-                                                Depth_bottom<=.32~"LGAK",
+                                                Depth_bottom<=.32001~"LGAK",
                                               
                                               Depth_top>=.32&
                                                 Depth_top<.50&
                                                 Depth_bottom>.32&
-                                                Depth_bottom<=.50~"LGAL",
+                                                Depth_bottom<=.500001~"LGAL",
                                               
                                               Depth_top>=.50&
                                                 Depth_top<1.02&
                                                 Depth_bottom>.50&
-                                                Depth_bottom>1.02~"LGAM"
+                                                Depth_bottom>=1.02000~"LGAM"
                                               ),
                                             
                                             
                                             "BDF23"~ case_when(
                                               
                                               Depth_top<.20&
-                                                Depth_bottom>=.20~"LGAH",
+                                                Depth_bottom>=.200001~"LGAH",
                                               
                                               Depth_top>=.2&
-                                                Depth_top<.70&
+                                                Depth_top<.700001&
                                               Depth_bottom>.20&
-                                              Depth_bottom<=.70~"LGAI"
+                                              Depth_bottom<=.70001~"LGAI"
                                               ),
                        
                                             "BDF30" ~ case_when(
@@ -717,14 +717,14 @@ data%>%filter(!substr(LabelEvent,2,2)=="G")%>%mutate(
                                                 Depth_bottom <= 0.10 ~ "LGAG",
                                               
                                               Depth_top >= 0.10 & 
-                                                Depth_top < 0.45 & 
+                                                Depth_top < 0.450001 & 
                                                 Depth_bottom > 0.10 & 
-                                                Depth_bottom <= 0.45 ~ "LGAF",
+                                                Depth_bottom <= 0.450001 ~ "LGAF",
                                               
                                               Depth_top >= 0.45 & 
-                                                Depth_top < 0.90 &
+                                                Depth_top < 0.900001 &
                                                 Depth_bottom > 0.45 &
-                                                Depth_bottom <= 0.90 ~ "LGAE"
+                                                Depth_bottom <= 0.90001 ~ "LGAE"
                                             ),
                                             
                                             
@@ -733,19 +733,19 @@ data%>%filter(!substr(LabelEvent,2,2)=="G")%>%mutate(
                                                 Depth_bottom <= 0.20 ~ "LGAA",
                                               
                                               Depth_top >= 0.20 &
-                                               Depth_top < 0.30 &
+                                               Depth_top < 0.300001 &
                                                Depth_bottom > 0.20 &
-                                               Depth_bottom <= 0.30 ~ "LGAB",
+                                               Depth_bottom <= 0.300001 ~ "LGAB",
                                         
                                               Depth_top >= 0.30 &
-                                               Depth_top < 0.60 &
+                                               Depth_top < 0.600001 &
                                                Depth_bottom > 0.30 &
-                                               Depth_bottom <= 0.60 ~ "LGAC",
+                                               Depth_bottom <= 0.600001 ~ "LGAC",
                                               
                                               Depth_top >= 0.60 &
-                                               Depth_top < 0.80 &
+                                               Depth_top < 0.800001 &
                                                Depth_bottom > 0.60 &
-                                               Depth_bottom <= 0.80 ~ "LGAD"
+                                               Depth_bottom <= 0.800001 ~ "LGAD"
                                             )
                                             
                                             # "BDF30"~ case_when(
@@ -798,7 +798,9 @@ PS_area=a=8*2 #cm2 (V per 1cm Höhe) (width*depth, V = PS_area * (Tiefe_bis - Ti
 
 
 ### TRD_prep ####
-BDF_SSL%>%filter(substr(LabelEvent,2,2)%in%c("Q","R","P"))%>%filter(is.na(Flag))%>%
+BDF_SSL%>%
+  filter(substr(LabelEvent,2,2)%in%c("Q","R","P"))%>%
+  filter(is.na(Flag))%>%
 
 #BDF_frisch%>%unnest(TRD,names_sep = "_")%>%unnest(sampling_data,names_sep = "_")%>%
 #  filter(!is.na(TRD_BDF)&!str_starts(sample_id,"LG"))%>%
@@ -817,7 +819,7 @@ BDF_SSL%>%filter(substr(LabelEvent,2,2)%in%c("Q","R","P"))%>%filter(is.na(Flag))
             `FSS_40 [g/cm3]`,
             `FSS_105 [g/cm3]`,
             `Soil horizon`=case_match(site_id,
-                                      
+        
                                       "BDF02" ~ case_when(
                                         Depth_top < 0.15 & Depth_bottom <= 0.15 ~ "Ap",
                                         Depth_top >= 0.15 & Depth_top < 0.32 & Depth_bottom > 0.15 & Depth_bottom <= 0.32 ~ "rAp",
@@ -849,18 +851,26 @@ BDF_SSL%>%filter(substr(LabelEvent,2,2)%in%c("Q","R","P"))%>%filter(is.na(Flag))
                            "R"~dh*RK_area,
                            "P"~dh*PS_area),
             vol_corr=vol-(`Size fraction >2 mm [wt-%]`/2.65)
-  )%>%bind_rows(
-    
+  )%>%
+  bind_rows(
     left_join(
       Lagerungsdichte_Referenz_neu%>%
-        transmute(vol=`Größe`,
-                  `Soil horizon`=Horizont,
-                  site_id=paste0("BDF",`BDF-Fläche`),
-                  Depth_top=`Tiefe von`/100,
-                  Depth_bottom=`Tiefe bis`/100,
-                  `dB_105 [g/cm3]`=`TRD g/cm3`,
-                  Typ="VZ"),
-      BDF_SSL%>%filter(str_starts(LabelEvent,"LG"))%>%select(`TOC [wt-%]`,LabelEvent,site_id,`Soil horizon`,Profile,Depth_top,Depth_bottom)%>%
+        transmute(
+          LG_sample,
+          VZno=Stechzylindernummer,
+          Hz_von,
+          Hz_bis,
+          vol=`Größe`,
+              `Soil horizon`=Horizont,
+              site_id=paste0("BDF",`BDF-Fläche`),
+              Depth_top=`Tiefe von`/100,
+              Depth_bottom=`Tiefe bis`/100,
+              `dB_105 [g/cm3]`=`TRD g/cm3`,
+              Typ="VZ"),
+      BDF_SSL%>%filter(str_starts(LabelEvent,"LG"))%>%
+        select(`TOC [wt-%]`,LabelEvent,site_id,
+               `Soil horizon`,Profile,Depth_top,Depth_bottom
+               )%>%
         mutate(
           `Soil horizon`=case_match(site_id,
                                     
@@ -891,14 +901,17 @@ BDF_SSL%>%filter(substr(LabelEvent,2,2)%in%c("Q","R","P"))%>%filter(is.na(Flag))
           ))%>%
         select(-Depth_top,-Depth_bottom),
       by=c("site_id","Soil horizon")
-    )%>%mutate(Device=if_else(Typ=="VZ","Soil ring",NA)))%>%
+    )%>%
+      mutate(Device=if_else(Typ=="VZ","Soil ring",NA)))%>%
+  # stocks in T ha-1 cm-1
   mutate(across(.cols = c(`dB_40 [g/cm3]`,
                           `dB_40FB [g/cm3]`,
                           `dB_105 [g/cm3]`,
                           `dB_105FB [g/cm3]`,
                           `FSS_40 [g/cm3]`,
                           `FSS_105 [g/cm3]`),
-                .fns = ~.*`TOC [wt-%]`,.names = "TOCstock_{.col}"))->TRD_prep
+                .fns = ~.*`TOC [wt-%]`,
+                .names = "TOCstock_{.col}"))->TRD_prep
 
 
 (
@@ -1078,6 +1091,25 @@ cm_aggregate(TRD_prep,depth_top_col = "Depth_top",
              res_out = .05)->TRD_prep_agg
 
 
+cm_aggregate(TRD_prep,depth_top_col = "Depth_top",
+             depth_bottom_col = "Depth_bottom",
+             group_list = c("site_id","Typ","Profile"),
+             aggregate_list = c("dB_40 [g/cm3]",
+                                "dB_40FB [g/cm3]",
+                                "dB_105 [g/cm3]",
+                                "dB_105FB [g/cm3]",
+                                "FSS_40 [g/cm3]",
+                                "FSS_105 [g/cm3]",
+                                "TOC [wt-%]",
+                                "TOCstock_dB_40 [g/cm3]",
+                                "TOCstock_dB_40FB [g/cm3]",
+                                "TOCstock_dB_105 [g/cm3]",
+                                "TOCstock_dB_105FB [g/cm3]",
+                                "TOCstock_FSS_40 [g/cm3]",
+                                "TOCstock_FSS_105 [g/cm3]"),
+             res_out = .05)->TRD_prep_agg_profile
+
+
 
 
 
@@ -1105,8 +1137,7 @@ ggplot(TRD_prep_agg,aes(x=(o3+u3)/2,y=`dB_105 [g/cm3]`,fill=Typ,group=paste((o3+
 
 
 
-ggplot(
-)+
+ggplot()+
   #manual gridlines
   #   geom_hline(yintercept = seq(.6,2.8,.1),col="grey15",linewidth=.025)+
   #  geom_vline(xintercept = seq(0,150,10),col="grey15",linewidth=.025)+
@@ -1266,7 +1297,6 @@ ggsave(plot=get_legend(p),filename="db profile_legend.png",path="C:/Users/adam/D
 
 
 ### TOC stocks ####
-#' CHANGE CODE BELOW
 
 
 
@@ -1478,12 +1508,17 @@ stocklabeller=c("TOCstock_dB_40 [g/cm3]"="TOC stock (dB40) [T/ha]",
                    "TOCstock_FSS_40 [g/cm3]"="TOC stock (FSS40) [T/ha]",  
                    "TOCstock_FSS_105 [g/cm3]"="TOC stock (FSS105) [T/ha]" )
 
+
+##### stock to 15 cm all ####
+
+
+# still off?
 TRD_prep_agg%>%
   select( contains("TOCstock_"),o3,u3,site_id,Typ)%>%
   pivot_longer(cols = contains("TOCstock_"))%>%
-  filter(o3>=0&u3<.1500001)%>%
+  filter(o3>=0&u3<.150001)%>%
   group_by(site_id,Typ,name)%>%
-  summarise(totTOCstock=sum(value,na.rm = T))%>%
+  summarise(totTOCstock=sum(value*abs(o3-u3)*100,na.rm = T))%>%
   bind_rows(tibble(site_id=rep("BDF23",6),Typ=rep("Q",6),
                        totTOCstock=rep(NULL,6),name=names(select(TRD_prep_agg,contains("TOCstock")))))%>%
   ggplot(aes(x=site_id,group=Typ,y=totTOCstock,fill=Typ))+
@@ -1497,6 +1532,98 @@ TRD_prep_agg%>%
   xlab("BDF site")+
   facet_wrap(~name,labeller=labeller(name=stocklabeller))
 
+# Assume your data is in a dataframe called df
+unique_groupings=expand.grid(site_id=unique(TRD_prep$site_id),
+                             Typ=unique(TRD_prep$Typ),
+                             depth_class=unique(TRD_prep$depth_class))
+
+# add depth classes for grouping
+# compare with report results (slightly different)
+#
+
+# Step 2: Left join with original data
+TRD_prep_agg_noemptygroup <- unique_groupings %>%
+  left_join(TRD_prep_agg, by = c("site_id", "Typ")) %>%
+  mutate(across(c(`TOCstock_dB_105 [g/cm3]`, u3, o3), ~replace_na(., 0)))
+
+
+#### stocks to 30 cm db105 ####
+TRD_prep_agg_noemptygroup%>%
+  select(contains("TOCstock_"),o3,u3,site_id,Typ)%>%
+  #pivot_longer(cols = contains("TOCstock_"))%>%
+  filter(o3>=0&u3<.300001)%>%
+  group_by(site_id,Typ)%>%
+  summarise(totTOCstock=sum(`TOCstock_dB_105 [g/cm3]`*(u3-o3)*100,na.rm = T))%>%
+  bind_rows(tibble(site_id=rep("BDF23"),Typ=rep("Q"),
+                   totTOCstock=rep(NULL),name=names(select(TRD_prep_agg,contains("TOCstock")))))%>%
+  ggplot(aes(x=site_id,group=Typ,y=totTOCstock,fill=Typ))+
+  geom_col(position="dodge",col="black")+
+  scale_fill_manual("Sampling method",
+                    breaks=c("P","Q","R","VZ"),
+                    labels=c("Sampling spade","Quicksampler","Push core","Soil ring"),
+                    values=alpha(colorblind_safe_colors()[1:4],.5))+
+  theme_pubr()+
+  theme(axis.text.x = element_text(angle=45,hjust=1))+
+  ylab(expression("TOC stock [T h"*a^-1*" c"*m^-1*"]"))+
+  xlab("0 - 15 cm")->stocks_0_30
+
+
+
+
+
+#### stocks 15 to 30 cm db105 ####
+TRD_prep_agg_noemptygroup%>%filter(Typ!="P")%>%
+  select(contains("TOCstock_"),o3,u3,site_id,Typ)%>%
+  #pivot_longer(cols = contains("TOCstock_"))%>%
+  filter(o3>=.15&u3<.30001)%>%
+  group_by(site_id,Typ)%>%
+  summarise(totTOCstock=sum(`TOCstock_dB_105 [g/cm3]`*(u3-o3)*100,na.rm = T))%>%
+  bind_rows(tibble(site_id=rep("BDF23"),Typ=rep("Q"),
+                   totTOCstock=rep(NULL),name=names(select(TRD_prep_agg,contains("TOCstock")))))%>%
+  ggplot(aes(x=site_id,group=Typ,y=totTOCstock,fill=Typ))+
+  geom_col(position="dodge",col="black")+
+  scale_fill_manual("Sampling method",
+                    breaks=c("P","Q","R","VZ"),
+                    labels=c("Sampling spade","Quicksampler","Push core","Soil ring"),
+                    values=alpha(colorblind_safe_colors()[1:4],.5))+
+  theme_pubr()+
+  theme(axis.text.x = element_text(angle=45,hjust=1))+
+  ylab(expression("TOC stock [T h"*a^-1*" c"*m^-1*"]"))+
+  xlab("15 - 30 cm")->stocks_15_30
+
+
+#### stocks 30 to 50 cm db105 ####
+TRD_prep_agg_noemptygroup%>%filter(Typ!="P")%>%
+  select(contains("TOCstock_"),o3,u3,site_id,Typ)%>%
+  #pivot_longer(cols = contains("TOCstock_"))%>%
+  filter(o3>=.30&u3<.50001)%>%
+  group_by(site_id,Typ)%>%
+  summarise(totTOCstock=sum(`TOCstock_dB_105 [g/cm3]`*(u3-o3)*100,na.rm = T))%>%
+  bind_rows(tibble(site_id=rep("BDF23"),Typ=rep("Q"),
+                   totTOCstock=rep(NULL),name=names(select(TRD_prep_agg,contains("TOCstock")))))%>%
+  ggplot(aes(x=site_id,group=Typ,y=totTOCstock,fill=Typ))+
+  geom_col(position="dodge",col="black")+
+  scale_fill_manual("Sampling method",
+                    breaks=c("P","Q","R","VZ"),
+                    labels=c("Sampling spade","Quicksampler","Push core","Soil ring"),
+                    values=alpha(colorblind_safe_colors()[1:4],.5))+
+  theme_pubr()+
+  theme(axis.text.x = element_text(angle=45,hjust=1))+
+  ylab(expression("TOC stock [T h"*a^-1*" c"*m^-1*"]"))+
+  xlab("30 - 50 cm")->stocks_30_50
+
+
+
+ggarrange(stocks_0_15,
+          stocks_15_30,
+          stocks_30_50,
+          nrow=1,
+          common.legend = T)#%>%ggsave(
+            filename="stocks_incerments.png",
+            path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+            width = 10,height = 4)
+#legend
+  
 
 ### stats ####
 
@@ -1512,7 +1639,35 @@ TRD_prep_agg%>%
   summarise(totTOCstock15=sum(`TOCstock_dB_105 [g/cm3]`,na.rm = T))
 
 
+#### sampling vis incl VZ ####
 
+ggplot(TRD_prep) +
+  geom_rect(aes(
+    xmin = as.numeric(factor(Profile)) - 0.4,
+    xmax = as.numeric(factor(Profile)) + 0.4,
+    ymin = Depth_top,
+    ymax = Depth_bottom,
+    fill = `dB_105 [g/cm3]`,
+  ),
+  col="black") +
+  geom_hline(yintercept = c(0,.1,.3,.5))+
+  
+  scale_y_reverse() +
+  scale_fill_viridis_c(option = "C") +
+  facet_grid(Device ~ site_id, scales = "free_x", space = "free_x") +
+  labs(
+    x = "Profile",
+    y = "Depth (cm)"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.spacing = unit(1, "lines"),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) +
+  scale_x_continuous(
+    breaks = unique(as.numeric(factor(data$Profile))),
+    labels = unique(data$Profile)
+  )
 ################################################################################################################################################################################################################# #
 # end of insert ####
 ############################################################################################################################################################################################################### #
