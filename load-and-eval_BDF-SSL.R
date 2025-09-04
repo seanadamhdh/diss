@@ -1302,7 +1302,7 @@ ggsave(plot=get_legend(p),filename="db profile_legend.png",path="C:/Users/adam/D
 
 TRD_TOC_VZ=
   left_join(
-    TRD_prep%>%filter(Typ=="VZ")%>%select(-Profile),
+    TRD_prep%>%filter(Typ=="VZ")%>%select(-Profile,-`TOC [wt-%]`),
     BDF_SSL%>%filter(str_starts(LabelEvent,"LG"))%>%
       select(`TOC [wt-%]`,LabelEvent,site_id,`Soil horizon`,Profile,Depth_top,Depth_bottom)%>%
     
@@ -1831,6 +1831,26 @@ ggsave(plot=CORG_TOC_p2+theme(legend.position = "none"),filename="CORG_TOC_Varia
 
 #legend
 ggsave(plot=get_legend(CORG_TOC_p1),filename="CORG_TOC_Variants_legend.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 8)
+
+
+
+#### summary ####
+rbind(BDF_main_soliTOC_oGS,BDF_main_soliTOC_GS)%>%
+  pivot_longer(cols = c(ROC,TIC900))%>%
+  left_join(BDF_SSL%>%select(LabelEvent,`Ct [wt-%]`,`CORG  [wt-%]`),by=c("Name"="LabelEvent"))%>%
+  mutate(diff=(TOC-`CORG  [wt-%]`)/`CORG  [wt-%]`*100)%>%
+  filter(diff<100)%>%
+  summarise_metrics(grouping_variables = "Methode",variables = "diff")
+
+rbind(BDF_main_soliTOC_oGS%>%
+          left_join(BDF_SSL%>%select(LabelEvent,`Ct [wt-%]`,`CORG  [wt-%]`),by=c("Name"="LabelEvent"))%>%
+          evaluate_model_adjusted(obs="CORG  [wt-%]",pred=TOC),
+        BDF_main_soliTOC_GS%>%
+          left_join(BDF_SSL%>%select(LabelEvent,`Ct [wt-%]`,`CORG  [wt-%]`),by=c("Name"="LabelEvent"))%>%
+          evaluate_model_adjusted(obs="CORG  [wt-%]",pred=TOC))%>%mutate(x=c("oGS","GS"),)%>%view
+
+
+
 
 
 
@@ -3812,7 +3832,7 @@ if(F){ # takes quite some time to run
   eval_frisch=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/all_frisch"))
   
   }
-  #### partial ####
+  #### predictions load partial ####
   pls_pred=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/pls_pred"))
   
   cubist_pred=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/cubist_pred"))
@@ -3838,6 +3858,9 @@ saveRDS(all_data,"C:/Users/adam/Desktop/UNI/PhD/DISS/data/temp/all_data")
 all_data=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/all_data"))
 
 # !!! log1p mbl are not expm1 yet !!!
+# !!! possibly ID mismatch for MBL_frisch !!!
+
+
 
 
 ## eval frisch / zeitreihe pred ####
@@ -4539,7 +4562,668 @@ write_excel_csv(best_candidates,"C:/Users/adam/Desktop/UNI/PhD/DISS/tables/best_
   ggsave(plot=get_legend(b_comparison),filename="b_comp_leg.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 4,height = 4)
   
   
-## processing effect ####
+## BDF_field vertical profile predictions ####
+  
+  
+  # sel var
+  names(all_data)
+  y="TOC [wt-%]"
+  
+  obspred_profiles=c()
+  
+  for (y in  variable_lookup%>%unlist){
+  
+  ypred=get_best(model_eval = all_test_eval,type_ = "cubist",
+                 variable_=(str_split_fixed(str_split_fixed(y,"  \\[",2)[,1]," \\[",2)[,1]),
+                 metric="rmse")
+  
+    
+    data1=all_data%>%filter(str_detect(Campaign,"field"))%>%
+    filter(LabelEvent%>%substr(2,2)%in%c("R","Q","P")&Depth_bottom>0)%>%mutate(y=.data[[y]])
+  
+    data2=TUBAFsoilFunctions::cm_aggregate(
+      dataset = 
+        all_data%>%filter(str_detect(Campaign,"field"))%>%
+        filter(LabelEvent%>%substr(2,2)%in%c("R","Q","P")&Depth_bottom>0),
+      depth_top_col = "Depth_top",
+      depth_bottom_col = "Depth_bottom",
+      aggregate_list = c(y),
+      group_list = c("Device","site_id"),
+      res_out = .05)%>%mutate(y=.data[[y]])
+    
+    data3=all_data%>%filter(str_detect(Campaign,"field"))%>%
+      filter(LabelEvent%>%substr(2,2)%in%c("R","Q","P")&Depth_bottom>0)%>%mutate(y=.data[[ypred]][["pred"]])
+    
+    
+    data4=TUBAFsoilFunctions::cm_aggregate(
+      dataset = all_data%>%filter(str_detect(Campaign,"field"))%>%
+        filter(LabelEvent%>%substr(2,2)%in%c("R","Q","P")&Depth_bottom>0)%>%
+        unnest(!!sym(ypred)),
+      depth_top_col = "Depth_top",
+      depth_bottom_col = "Depth_bottom",
+      aggregate_list = "pred",
+      group_list = c("Device","site_id"),
+      res_out = .05)%>%mutate(y=.data[["pred"]])
+    
+    obspred_profiles[[y]]=
+    
+    ggplot()+
+    
+    #1 reference individual
+    geom_line(data=
+                data1,
+              aes(
+                x=(Depth_bottom+Depth_top)/2,
+                y=y,# same as weighed for TOC determination
+                color="obs",
+                linetype=Device,
+                shape=Device,
+                group=paste(site_id,Device,Profile)),
+              linewidth=.25)+
+    
+    #2 refernce avg
+    geom_line(data=data2, 
+      aes(
+        x=(o3+u3)/2,
+        y=y,   
+        linetype=Device,
+        color="obs",
+        shape=Device,
+        group=paste(site_id,Device)),
+      linewidth=1
+    )+
+    
+    #3 pred individual
+    geom_line(data=data3,
+              aes(
+                x=(Depth_bottom+Depth_top)/2,
+                y=y,# same as weighed for TOC determination
+                color="pred",
+                linetype=Device,
+                shape=Device,
+                group=paste(site_id,Device,Profile)),
+              linewidth=.25)+
+    
+    #4 pred avg
+    geom_line(data=data4, 
+      aes(
+        x=(o3+u3)/2,
+        y=y,   
+        linetype=Device,
+        color="pred",
+        shape=Device,
+        group=paste(site_id,Device)),
+      linewidth=1
+    )+
+    
+    #formatting
+    coord_flip()+#xlim=c(1.50,0),
+    #ylim=c(0.6,2.3))+
+    scale_x_reverse("Depth [m]",
+                    breaks=seq(0,1.50,.50),
+                    minor_breaks=seq(0,1.50,.10))+
+    #scale_color_manual(breaks=c("02","23","30","35"),values=colorblind_safe_colors()[c(2:4,8)],labels=paste("BDF",c("02","23","30","35")))+
+    # scale_linetype_manual("",
+    #                       breaks=c("neu","BDF-Referenz","Profilspaten","Quicksampler","Rammkern"),
+    #                       values=c("solid","solid","dotdash","dashed","dotted"),
+    #                       labels=c("Soil rings (reference)","Reference (Forberg and Barth, 2020)","Sampling spade","Quicksampler","Push core"))+
+    # scale_shape_manual("",
+    #                    breaks=c("neu","BDF-Referenz","Profilspaten","Quicksampler","Rammkern"),
+    #                    values=c(4,1,1,1,1),
+    #                    labels=c("Soil rings (reference)","Reference (Forberg and Barth, 2020)","Sampling spade","Quicksampler","Push core"))+
+    # 
+    # # scale_alpha_manual("",
+    # #                      breaks=c("neu","BDF-Referenz","Profilspaten","Quicksampler","Rammkern"),
+    # #                      values=c(1,1,1,1,1),
+    # #                      labels=c("Disturbed samples","Reference (Forberg and Barth, 2020)","Sampling spade","Quicksampler","Push core"))+
+    # scale_color_manual("",
+    #                    breaks=c("FSS40","dB105"),
+    #                    values = c(colorblind_safe_colors()[c(6,7)])
+    #                    #   labels=c("Soil rings (reference)","Reference (Forberg and Barth, 2020)","Sampling spade","Quicksampler","Push core")
+    # )+
+    #scale_y_continuous("Soil TOC stock [g/cm³]")+
+    theme_pubr()+
+    geom_vline(xintercept = 0,color="grey50")+
+    theme(legend.box="vertical",
+          legend.position = "right",
+          #panel.grid = element_line(colour = "grey"),
+          panel.grid.major = element_line(colour = "grey",linewidth = .05),
+          panel.grid.minor = element_line(colour = "grey",linewidth = .05,linetype = "dotted")
+    )+
+    ggh4x::facet_wrap2(facets = vars(site_id),
+                       labeller = BDF_labeller,
+                       scales = "fixed",
+                       axes="all",
+                       remove_labels = "all",nrow = 1,ncol = 4)+
+     theme(legend.position = "none")
+  print(y)
+  
+  }
+  
+  
+  # add Forberg reference if available
+  obspred_profiles_ref=obspred_profiles
+  ref_list=c( "TC [wt-%]","TIC900 [wt-%]","TOC [wt-%]","TOC400 [wt-%]","ROC [wt-%]")
+  for (i in names(obspred_profiles)){
+    print(i) #debug
+    
+    obspred_profiles_ref[[i]]=obspred_profiles_ref[[i]]+ylab(i)
+    
+    var_basename=str_split_fixed(i," ",2)[,1]
+    
+    print(var_basename) #debug
+    if(var_basename %in% names(Lagerungsdichte_Referenz)){
+      print(1) #debug
+      
+      data5=filter(Lagerungsdichte_Referenz,Tiefe<100)%>%
+        mutate(site_id=paste0("BDF",BDF))%>%mutate(y=.data[[var_basename]])
+      obspred_profiles_ref[[i]]=obspred_profiles_ref[[i]]+
+        geom_line(data = data5,
+                  aes(x=Tiefe/100,
+                      y=y, # 10e-2 g/cm³ | 1ha =10e8 cm² , 1 T = 10^6 g -> 1 10^-2g/cm³ = 1 T/ha*cm
+                      color="BDF-Referenz",
+                      linetype="BDF-Referenz"
+                  ),
+                  linewidth=1,
+        )
+      
+      ref_list=c(ref_list,i)
+    }
+    
+
+
+    if(var_basename %in% c("T","U","S")){
+      print(2) #debug
+      data6=bind_rows(
+        Lagerungsdichte_Referenz_neu%>%
+          left_join(BDF_SSL%>%
+                      filter(LabelEvent%>%str_starts("LG"))%>%
+                      select(LabelEvent,site_id,Depth_top,Depth_bottom,"T [wt-%]","U [wt-%]","S [wt-%]"),
+                    by=c("LG_sample"="LabelEvent")),
+        Lagerungsdichte_Referenz_neu%>%
+          left_join(BDF_SSL%>%
+                      filter(LabelEvent%>%str_starts("LG"))%>%
+                      select(LabelEvent,site_id,Depth_top,Depth_bottom,"T [wt-%]","U [wt-%]","S [wt-%]"),
+                    by=c("LG_sample"="LabelEvent"))%>%
+          group_by(site_id)%>%
+          filter(Hz_von==max(Hz_von))%>%
+          mutate(Hz_von=Hz_bis)
+      )%>%mutate(y=.data[[i]])
+        
+      obspred_profiles_ref[[i]]=obspred_profiles_ref[[i]]+
+        geom_step(data = data6
+                #    pivot_longer(cols = c(Hz_von,Hz_bis),values_to = "Hz")
+                ,
+                  aes(x=Hz_von/100,
+                      y=y, # 10e-2 g/cm³ | 1ha =10e8 cm² , 1 T = 10^6 g -> 1 10^-2g/cm³ = 1 T/ha*cm
+                      color="obs",
+                      linetype="obs"
+                  ),
+                  linewidth=1,
+                direction="vh"
+        )
+
+      ref_list=c(ref_list,i)
+    }
+    
+    obspred_profiles_ref[[i]]=obspred_profiles_ref[[i]]+
+      scale_color_manual(breaks=c("obs","pred","BDF-Referenz"),
+                         values=colorblind_safe_colors()[c(4,2,6)],
+                         labels=c("Reference data","DRIFTS predictions","Reference data (Forberg et al. 2020)"))+
+      scale_fill_manual(breaks=c("obs","pred","BDF-Referenz"),
+                        values=colorblind_safe_colors()[c(4,2,6)],
+                        labels=c("Reference data","DRIFTS predictions","Reference data (Forberg et al. 2020)"))
+    
+    
+    obspred_profiles_ref[[i]]%>% 
+      ggsave(plot=,filename=paste0(var_basename,"_field_profile.png"),path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 10,height = 5)
+    
+  }
+  
+  
+  
+  
+  # dummy legend
+  
+  get_legend(
+    obspred_profiles_ref[[25]]+theme(legend.position = "top")+scale_color_manual("",breaks=c("obs","pred"),
+                                                                                 values=colorblind_safe_colors()[c(4,2)],
+                                                                                 labels=c("Reference data","DRIFTS predictions"))+
+      scale_linetype_manual(breaks=c("Profilspaten","Quicksampler","Rammkern"),
+                            values=c("solid","dotted","dashed"),
+                            labels=c("Sampling spade", "Quicksampler", "Push core"))+
+      guides(
+        color = guide_legend(order = 1),
+        shape = guide_legend(order = 2)
+      )
+    
+  )%>% 
+    ggsave(filename="obspredprofiles_legend1.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 4)
+  
+  get_legend(
+    obspred_profiles_ref[[29]]+theme(legend.position = "top")+scale_color_manual("",breaks=c("pred","BDF-Referenz"),
+                                                                                 values=colorblind_safe_colors()[c(4,2,6)],
+                                                                                 labels=c("DRIFTS predictions","Reference data (Forberg et al. 2020)"))+
+      scale_linetype_manual(breaks=c("obs","BDF-Referenz","Profilspaten","Quicksampler","Rammkern"),
+                            values=c("dashed","solid","solid","dotted","dashed"),
+                            labels=c("Reference data","Reference (Forberg et al. 2020)", "Sampling spade", "Quicksampler", "Push core"))+
+      guides(
+        color = guide_legend(order = 1),
+        shape = guide_legend(order = 2)
+      )
+    
+  )%>% 
+    ggsave(filename="obspredprofiles_legend2.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 4)
+  
+  
+  
+  get_legend(
+    obspred_profiles_ref[[29]]+theme(legend.position = "top")+scale_color_manual("",breaks=c("obs","pred","BDF-Referenz"),
+                                                                                 values=colorblind_safe_colors()[c(4,2,6)],
+                                                                                 labels=c("Reference data","DRIFTS predictions","Reference data (Forberg et al. 2020)"))+
+      scale_linetype_manual(breaks=c("obs","BDF-Referenz","Profilspaten","Quicksampler","Rammkern"),
+                            values=c("dashed","solid","solid","dotted","dashed"),
+                            labels=c("Reference data","Reference (Forberg et al. 2020)", "Sampling spade", "Quicksampler", "Push core"))+
+      guides(
+        color = guide_legend(order = 1),
+        shape = guide_legend(order = 2)
+      )
+    
+  )%>% 
+    ggsave(filename="obspredprofiles_legend3.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 4)
+  
+  
+  
+    # does not work, inflates
+  # all
+  ggarrange(plotlist = obspred_profiles_ref,ncol=1)->tmp_plt
+  ggsave(plot=tmp_plt,filename="obspredprofiles.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 16,height = 120,limitsize = F)
+  
+  # with ref only
+  ggarrange(plotlist = obspred_profiles_ref[ref_list],ncol=1)->tmp_plt_ref
+  ggsave(plot=tmp_plt_ref,filename="obspredprofiles_ref.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 16,height = 44,limitsize = F)
+  
+  
+  # for diss (split and sorted)
+  #1 soliTOC
+  ggarrange(plotlist = obspred_profiles_ref[c("TC [wt-%]","TOC [wt-%]","TOC400 [wt-%]","ROC [wt-%]","TIC900 [wt-%]")],ncol=1)->tmp_plt_ref
+  ggsave(plot=tmp_plt_ref,filename="obspredprofiles_ref_1.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 16,height = 20,limitsize = F)
+  
+  #2 BDF vars
+  ggarrange(plotlist = obspred_profiles_ref[c( "CORG  [wt-%]","KAKpot [cmolc/kg]","Nt [wt-%]")],ncol=1)->tmp_plt_ref
+  ggsave(plot=tmp_plt_ref,filename="obspredprofiles_ref_2.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 16,height = 12,limitsize = F)
+  
+  #3 BDF vars
+  ggarrange(plotlist = obspred_profiles_ref[c("T [wt-%]","U [wt-%]","S [wt-%]")],ncol=1)->tmp_plt_ref
+  ggsave(plot=tmp_plt_ref,filename="obspredprofiles_ref_3.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 16,height = 12,limitsize = F)
+  
+  
+  
+  ### mbl test ####
+  #' note: check LabelEvent mismatch. Possibly only for archive samples
+  #' otherwise rerun MBL
+  #' !!!!!!!!!! STILL an issue: log1p is not expm1
+  #' in LfULG report panel with soliTOC fractions; best model ccandidates (pls, cubist, mbl)
+  #' on x axis, bdf sites on y axis...
+  #' maybe just redo those... -> insert below
+  #' 
+  #' Also: For var excl. soliTOC, add reference data from Forberg et al 2020
+  
+  # sel var
+  names(all_data)
+  y="TOC [wt-%]"
+  
+  obspred_profiles_mbl=c()
+  
+  for (y in  variable_lookup%>%unlist){
+    
+    
+    # try with mbl -> use local_cv rmse as uncertainty estimate
+    ypred=get_best(model_eval = all_test_eval,type_ = "mbl",
+                   variable_=(str_split_fixed(str_split_fixed(y,"  \\[",2)[,1]," \\[",2)[,1]),
+                   metric="rmse")
+    
+    obspred_profiles_mbl[[y]]=
+  ggplot()+
+      
+      # reference individual
+      geom_line(data=
+                  all_data%>%filter(str_detect(Campaign,"field"))%>%
+                  filter(LabelEvent%>%substr(2,2)%in%c("R","Q","P")&Depth_bottom>0),
+                aes(
+                  x=(Depth_bottom+Depth_top)/2,
+                  y=.data[[y]],# same as weighed for TOC determination
+                  color="obs",
+                  linetype=Device,
+                  shape=Device,
+                  group=paste(site_id,Device,Profile)),
+                linewidth=.25)+
+      
+      # refernce avg
+      geom_line(data=TUBAFsoilFunctions::cm_aggregate(
+        dataset = 
+          all_data%>%filter(str_detect(Campaign,"field"))%>%
+          filter(LabelEvent%>%substr(2,2)%in%c("R","Q","P")&Depth_bottom>0),
+        depth_top_col = "Depth_top",
+        depth_bottom_col = "Depth_bottom",
+        aggregate_list = c(y),
+        group_list = c("Device","site_id"),
+        res_out = .05), 
+        aes(
+          x=(o3+u3)/2,
+          y=.data[[y]],   
+          linetype=Device,
+          color="obs",
+          shape=Device,
+          group=paste(site_id,Device)),
+        linewidth=1
+      )+  
+      
+    # pred range (mbl +- local cv)
+    geom_ribbon(data=all_data%>%filter(str_detect(Campaign,"field"))%>%
+                filter(LabelEvent%>%substr(2,2)%in%c("R","Q","P")&Depth_bottom>0),
+              aes(
+                x=(Depth_bottom+Depth_top)/2,
+                ymin=.data[[ypred]][["pred"]]-.data[[ypred]][["loc_rmse_cv"]],
+                ymax=.data[[ypred]][["pred"]]+.data[[ypred]][["loc_rmse_cv"]],
+                y=.data[[ypred]][["pred"]],# same as weighed for TOC determination
+                fill="pred",
+                linetype=Device,
+                shape=Device,
+                group=paste(site_id,Device,Profile)),
+              alpha=.1,
+              linewidth=0)+
+      
+      geom_line(data=all_data%>%filter(str_detect(Campaign,"field"))%>%
+                    filter(LabelEvent%>%substr(2,2)%in%c("R","Q","P")&Depth_bottom>0),
+                  aes(
+                    x=(Depth_bottom+Depth_top)/2,
+                    #ymin=.data[[ypred]][["pred"]]-.data[[ypred]][["loc_rmse_cv"]],
+                    #ymax=.data[[ypred]][["pred"]]+.data[[ypred]][["loc_rmse_cv"]],
+                    y=.data[[ypred]][["pred"]],# same as weighed for TOC determination
+                    fill="pred",
+                    linetype=Device,
+                    shape=Device,
+                    group=paste(site_id,Device,Profile)),
+                  alpha=.1,
+                  linewidth=0.25)+
+    
+    # avg
+    geom_line(data=TUBAFsoilFunctions::cm_aggregate(
+      dataset = all_data%>%filter(str_detect(Campaign,"field"))%>%
+        filter(LabelEvent%>%substr(2,2)%in%c("R","Q","P")&Depth_bottom>0)%>%
+        unnest(!!sym(ypred)),
+      depth_top_col = "Depth_top",
+      depth_bottom_col = "Depth_bottom",
+      aggregate_list = "pred",
+      group_list = c("Device","site_id"),
+      res_out = .05), 
+      aes(
+        x=(o3+u3)/2,
+        y=.data[["pred"]],   
+        linetype=Device,
+        color="pred",
+        shape=Device,
+        group=paste(site_id,Device)),
+      linewidth=1
+    )+
+    
+      
+    #formatting
+    coord_flip()+#xlim=c(1.50,0),
+    #ylim=c(0.6,2.3))+
+    scale_x_reverse("Depth [m]",
+                    breaks=seq(0,1.50,.50),
+                    minor_breaks=seq(0,1.50,.10))+
+    #scale_color_manual(breaks=c("02","23","30","35"),values=colorblind_safe_colors()[c(2:4,8)],labels=paste("BDF",c("02","23","30","35")))+
+    # scale_linetype_manual("",
+    #                       breaks=c("neu","BDF-Referenz","Profilspaten","Quicksampler","Rammkern"),
+    #                       values=c("solid","solid","dotdash","dashed","dotted"),
+    #                       labels=c("Soil rings (reference)","Reference (Forberg and Barth, 2020)","Sampling spade","Quicksampler","Push core"))+
+    # scale_shape_manual("",
+    #                    breaks=c("neu","BDF-Referenz","Profilspaten","Quicksampler","Rammkern"),
+    #                    values=c(4,1,1,1,1),
+    #                    labels=c("Soil rings (reference)","Reference (Forberg and Barth, 2020)","Sampling spade","Quicksampler","Push core"))+
+    # 
+    # # scale_alpha_manual("",
+    # #                      breaks=c("neu","BDF-Referenz","Profilspaten","Quicksampler","Rammkern"),
+    # #                      values=c(1,1,1,1,1),
+    # #                      labels=c("Disturbed samples","Reference (Forberg and Barth, 2020)","Sampling spade","Quicksampler","Push core"))+
+    # scale_color_manual("",
+    #                    breaks=c("FSS40","dB105"),
+    #                    values = c(colorblind_safe_colors()[c(6,7)])
+    #                    #   labels=c("Soil rings (reference)","Reference (Forberg and Barth, 2020)","Sampling spade","Quicksampler","Push core")
+    # )+
+    #scale_y_continuous("Soil TOC stock [g/cm³]")+
+    theme_pubr()+
+    geom_vline(xintercept = 0,color="grey50")+
+    theme(legend.box="vertical",
+          legend.position = "right",
+          #panel.grid = element_line(colour = "grey"),
+          panel.grid.major = element_line(colour = "grey",linewidth = .05),
+          panel.grid.minor = element_line(colour = "grey",linewidth = .05,linetype = "dotted")
+    )+
+    ggh4x::facet_wrap2(facets = vars(site_id),
+                       labeller = BDF_labeller,
+                       scales = "fixed",
+                       axes="all",
+                       remove_labels = "all",nrow = 1,ncol = 4)+
+    theme(legend.position = "none")
+    print(y)
+    
+  }
+  
+  # add Forberg reference if available
+  obspred_profiles_mbl_ref=obspred_profiles_mbl
+  for (i in names(obspred_profiles_mbl)){
+    var_basename=str_split_fixed(i," ",2)[,1]
+    print(var_basename)
+    if(var_basename %in% names(Lagerungsdichte_Referenz)){
+      
+      obspred_profiles_mbl_ref[[i]]=obspred_profiles_mbl_ref[[i]]+
+        geom_line(data = filter(Lagerungsdichte_Referenz%>%mutate(site_id=paste0("BDF",BDF)),Tiefe<100),
+                  aes(x=Tiefe/100,
+                      y=.data[[var_basename]], # 10e-2 g/cm³ | 1ha =10e8 cm² , 1 T = 10^6 g -> 1 10^-2g/cm³ = 1 T/ha*cm
+                      color="BDF-Referenz",
+                      linetype="BDF-Referenz"
+                  ),
+                  linewidth=1,
+        )
+    }
+    
+    obspred_profiles_mbl_ref[[i]]=obspred_profiles_mbl_ref[[i]]+
+      scale_color_manual(breaks=c("obs","pred","BDF-Referenz"),
+                         values=colorblind_safe_colors()[4,2,4],
+                         labels=c("Reference data","DRIFTS predictions"))+
+      scale_fill_manual(breaks=c("obs","pred","BDF-Referenz"),
+                         values=colorblind_safe_colors()[4,2,4],
+                        labels=c("Reference data","DRIFTS predictions"))
+      
+      
+  }
+  
+  
+  # does not work, inflates
+  # saveRDS(obspred_profiles,"C:/Users/adam/Desktop/UNI/PhD/DISS/plots/obspred_profiles")
+  ggarrange(plotlist = obspred_profiles_mbl_ref,ncol=1)->tmp_plt_mbl
+  ggsave(plot=tmp_plt_mbl,filename="obspredprofiles_mbl.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 16,height = 120,limitsize = F)
+  
+  
+  
+############################################################################################################################################# #
+## INSERT BDF_frisch_evaluation (LfULG report) vertical profiles for additional variables incl. Forberg et al 2020 reference ####  
+  
+  
+  # change path (only avail when connected to zfs)
+  UNITS <- read_csv(paste0(data_dir,"Sean_Environment/BDF/BDF-SSL/5_Provided_BDF_Database/Adam-2024_UBoden-UNITS_lookup.csv"))
+  for (var_ in c("TOC400","ROC","TIC900","TOC","TC")
+  ){
+    
+    model=filter(all_evaluation_best_rmse,variable==var_)%>%pull(model)
+    model_name=paste0(filter(all_evaluation_best_rmse,variable==var_)%>%pull(model),"_",filter(all_evaluation_best_rmse,variable==var_)%>%pull(set),"-",filter(all_evaluation_best_rmse,variable==var_)%>%pull(trans))
+    
+    svg(paste0(root_dir,"/GitHub/R_main/R_main/temp/BDF_frisch_",var_,"_predictied_profiles.svg"),width = 3,height = 13)
+    print(var_)
+    plot(  
+      BDF_frisch_predictions%>%mutate(BDF=sampling_data$BDF)%>%filter(sample_id%>%substr(2,2)%in%c("R","Q","P")&sampling_data$Tiefe_von>=0) %>% mutate(Tiefe=(sampling_data$Tiefe_bis+sampling_data$Tiefe_von)/2)%>%
+        ggplot(
+        )+
+        #manual gridlines
+        #   geom_hline(yintercept = seq(.6,2.8,.1),col="grey15",linewidth=.025)+
+        #  geom_vline(xintercept = seq(0,150,10),col="grey15",linewidth=.025)+
+        # geom_vline(xintercept = 0,linewidth=.2,col="black")+
+        # obs  
+        geom_line(
+          aes(x=Tiefe,
+              y=soliTOC[[var_]],
+              col="soliTOC",
+              linetype=sampling_data$Typ,
+              group=paste(sampling_data$BDF,sampling_data$Position,sampling_data$Typ)),
+          linewidth=.1,alpha=.5
+        )+
+        geom_smooth(
+          aes(x=Tiefe,
+              y=soliTOC[[var_]],
+              col="soliTOC",
+              linetype=sampling_data$Typ,
+              group=paste(sampling_data$BDF,sampling_data$Typ)
+          ),
+          linewidth=1,
+          se=F)+
+        
+        
+        # pred
+        geom_line(
+          aes(
+            x=Tiefe,
+            y=.data[[paste0(model,"_predictions")]][[var_]]$pred,
+            linetype=sampling_data$Typ,
+            col="DRIFTS",
+            group=paste(sampling_data$BDF,sampling_data$Position,sampling_data$Typ)),
+          linewidth=.1)+
+        geom_smooth(
+          aes(
+            x=Tiefe,
+            y=.data[[paste0(model,"_predictions")]][[var_]]$pred,
+            linetype=sampling_data$Typ,
+            col="DRIFTS",
+            group=paste(sampling_data$BDF,sampling_data$Typ)),
+          se=F
+        )+ 
+        
+        
+        #formatting
+        coord_flip()+
+        scale_x_reverse("Tiefe [cm]",
+                        breaks=seq(0,150,50),
+                        minor_breaks=seq(0,150,10))+
+        #scale_color_manual(breaks=c("02","23","30","35"),values=colorblind_safe_colors[c(2:4,8)],labels=paste("BDF",c("02","23","30","35")))+
+        scale_linetype_manual("",
+                              breaks=c("Profilspaten","Quicksampler","Rammkern"),
+                              values=c("dotdash","dashed","dotted"),
+                              labels=c("PS","QS","RK"))+
+        
+        scale_color_manual("",
+                           breaks=c("soliTOC","DRIFTS"),
+                           values = c(colorblind_safe_colors[c(7,1)],"black","black","black"),
+                           labels=c("soliTOC","DRIFTS"))+
+        ylab(paste0(var_," [M-%]"))+
+        theme_pubr()+
+        theme(legend.box="vertical",strip.text = element_text(size=8)
+              #legend.position = "top"
+              #panel.grid = element_line(colour = "grey"),
+              #panel.grid.major = element_line(colour = "grey",linewidth = 1),
+              #panel.grid.minor = element_line(colour = "grey",linewidth = 1,linetype = "solid")
+        )+ggtitle("",subtitle = model_name)+
+        facet_wrap(facets = vars(BDF),labeller = BDF_labeller,scales = "free",ncol = 1)
+    )
+    dev.off()
+  }
+  
+  
+  
+  # vars no reference available ####
+  UNITS <- read_csv(paste0(root_dir,"/GitHub/BDF/BDF-SSL/5_Provided_BDF_Database/Adam-2024_UBoden-UNITS_lookup.csv"))
+  for (var_ in c(
+    "CORG","T","U","S","KAKpot","Nt"
+  )
+  ){
+    model=filter(all_evaluation_best_rmse,variable==var_)%>%pull(model)
+    model_name=paste0(filter(all_evaluation_best_rmse,variable==var_)%>%pull(model),"_",filter(all_evaluation_best_rmse,variable==var_)%>%pull(set),"-",filter(all_evaluation_best_rmse,variable==var_)%>%pull(trans))
+    
+    svg(paste0(root_dir,"/GitHub/BDF/BDF-SSL/3_r_scripts/temp/BDF_frisch_",var_,"_predictied_profiles.svg"),width = 3,height = 13)
+    print(var_)
+    plot(  
+      BDF_frisch_predictions%>%mutate(BDF=sampling_data$BDF)%>%filter(sample_id%>%substr(2,2)%in%c("R","Q","P")&sampling_data$Tiefe_von>=0) %>% mutate(Tiefe=(sampling_data$Tiefe_bis+sampling_data$Tiefe_von)/2)%>%
+        ggplot(
+        )+
+        #manual gridlines
+        #   geom_hline(yintercept = seq(.6,2.8,.1),col="grey15",linewidth=.025)+
+        #  geom_vline(xintercept = seq(0,150,10),col="grey15",linewidth=.025)+
+        # geom_vline(xintercept = 0,linewidth=.2,col="black")+
+        # 
+        
+        
+        # pred
+        geom_line(
+          aes(
+            x=Tiefe,
+            y=.data[[paste0(model,"_predictions")]][[var_]]$pred,
+            linetype=sampling_data$Typ,
+            col="DRIFTS",
+            group=paste(sampling_data$BDF,sampling_data$Position,sampling_data$Typ)),
+          linewidth=.1)+
+        geom_smooth(
+          aes(
+            x=Tiefe,
+            y=.data[[paste0(model,"_predictions")]][[var_]]$pred,
+            linetype=sampling_data$Typ,
+            col="DRIFTS",
+            group=paste(sampling_data$BDF,sampling_data$Typ)),
+          se=F
+        )+ 
+        
+        geom_line(data = filter(Lagerungsdichte_Referenz,Tiefe<100),
+                  aes(x=Tiefe,
+                      y=.data[[var_]], # 10e-2 g/cm³ | 1ha =10e8 cm² , 1 T = 10^6 g -> 1 10^-2g/cm³ = 1 T/ha*cm
+                      col="BDF-Referenz",
+                      linetype="BDF-Referenz"
+                  ),
+                  linewidth=1,
+        )+
+        #formatting
+        coord_flip()+
+        scale_x_reverse("Tiefe [cm]",
+                        breaks=seq(0,150,50),
+                        minor_breaks=seq(0,150,10))+
+        #scale_color_manual(breaks=c("02","23","30","35"),values=colorblind_safe_colors[c(2:4,8)],labels=paste("BDF",c("02","23","30","35")))+
+        scale_linetype_manual("",
+                              breaks=c("Profilspaten","Quicksampler","Rammkern","BDF-Referenz"),
+                              values=c("dotdash","dashed","dotted","solid"),
+                              labels=c("PS","QS","RK","BDF"))+
+        
+        scale_color_manual("",
+                           breaks=c("BDF-Referenz","DRIFTS"),
+                           values = c(colorblind_safe_colors[c(6,7)],"black","black","black"),
+                           labels=c("Referenz","DRIFTS"))+
+        ylab(paste0(var_," [M-%]"))+
+        theme_pubr()+
+        theme(legend.box="vertical",strip.text = element_text(size=8)
+              #legend.position = "top"
+              #panel.grid = element_line(colour = "grey"),
+              #panel.grid.major = element_line(colour = "grey",linewidth = 1),
+              #panel.grid.minor = element_line(colour = "grey",linewidth = 1,linetype = "solid")
+        )+ggtitle("",subtitle = model_name)+
+        facet_wrap(facets = vars(BDF),labeller = BDF_labeller,scales = "free",ncol = 1)
+    )
+    dev.off()
+  }
+  
+  # END of insert 
+  ############################################################################################################################################# #
+  
+  
+  ## processing effect ####
 all_test_eval%>%filter(!str_detect(variable,"ratio"))%>%
   
   mutate(d_type=case_match(type,"pls"~"a","cubist"~"b","mbl"~"c"),
@@ -5700,13 +6384,19 @@ out%>%select(model_type,size,time,n,rmse)%>%
 
 bind_rows(tibble(out_test,dataset="Test sets"),
           tibble(out,dataset="DE-2023-BDF_archive"))%>%
-  mutate(model=str_split_fixed(model_type,"_",2)[,1])%>%pivot_longer(cols = c(rmse,
-                                                                              rpd,
-                                                                              R2,
-                                                                              #linsCCC,
-                                                                              bias))%>%
-  group_by(dataset,model,size,name)%>%summarise(
-    across(.cols = value,.fns = list(mean=mean,min=min,max=max,median=median)))%>%
+  mutate(model=str_split_fixed(model_type,"_",2)[,1])%>%
+  pivot_longer(cols = c(rmse,
+                        rpd,
+                        R2,
+                        #linsCCC,
+                        bias))%>%
+  group_by(dataset,model,size,name)%>%
+  summarise(
+    across(.cols = value,.fns = list(mean=mean,
+                                     min=min,
+                                     max=max,
+                                     median=median))
+    )%>%
   filter(!dataset=="DE-2023-BDF_archive")%>%
   
   ggplot(aes(x=size,col=model))+
@@ -5795,7 +6485,8 @@ ggsave(train_size_all_val,filename = "train_size_all_val_core.png",
 
 bind_rows(tibble(out_test,dataset="Test sets"),
           tibble(out,dataset="DE-2023-BDF_archive"))%>%
-  mutate(model=str_split_fixed(model_type,"_",2)[,1])%>%pivot_longer(cols = c(rmse,
+  mutate(model=str_split_fixed(model_type,"_",2)[,1])%>%
+  pivot_longer(cols = c(rmse,
                                                                               rpd,
                                                                               R2,
                                                                               #linsCCC,

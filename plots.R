@@ -255,7 +255,8 @@ base_default = ggplot(data = USDA, aes(y=Clay, x=Sand, z=Silt)) +
   theme_showarrows() +
   custom_percent("Percent") +
   theme(legend.justification = c(0, 1),
-        legend.position      = c(0, 1),
+        legend.position = "inside",
+        legend.position.inside = c(0, 1),
         axis.tern.padding    = unit(0.15, 'npc'))
 
 base = ggplot(data = USDA, aes(y=Clay, x=Sand, z=Silt)) +
@@ -309,7 +310,7 @@ spc_data_prep%>%
 
 # select and order variables
 variables=c(
-  "CORG  [wt-%]","Nt [wt-%]","Pt [wt-%]",
+  "CORG [wt-%]","Nt [wt-%]","Pt [wt-%]",
   "S [wt-%]","U [wt-%]","T [wt-%]",
   "KAKpot [cmolc/kg]","pH_CaCl2", "Fe_t [mg/kg]"
 )
@@ -875,7 +876,8 @@ ggsave(plot=spc_plt,
 # using v2 with rea-in from curated xlsx
 add_absorbance_wrapper(ggplot(),
                        read_xlsx(paste0(code_dir,"/GitLab/bdf-ssl_code/peaks Ready.xlsx"),
-                                 sheet="default")
+                                 sheet="default"),
+                       txt_size=3
                       )+
   # add spc as top layer
   geom_ribbon(data=spc_summary_top%>%
@@ -892,7 +894,7 @@ add_absorbance_wrapper(ggplot(),
   ggthemes::scale_color_colorblind("Site")+
   ylab("Absorbance")+
   theme_minimal()+
-  coord_cartesian(ylim=c(1.1,3.6))->spc_plt_new
+  coord_cartesian(ylim=c(1.1,3.6))#->spc_plt_new
 
 
 ggsave(plot=spc_plt_new,
@@ -914,6 +916,44 @@ ggsave(plot=spc_plt_new+theme(legend.position = "bottom"),
        width = 12,
        height = 5
 )
+
+
+
+
+
+#### resize plt for poster ####
+(add_absorbance_wrapper(ggplot(),
+                       read_xlsx(paste0(code_dir,"/GitLab/bdf-ssl_code/peaks Ready.xlsx"),
+                                 sheet="default"),
+                       txt_size=5
+)+
+  # add spc as top layer
+  geom_ribbon(data=spc_summary_top%>%
+                group_by(wn)%>%
+                summarise(min=min(min),max=max(max)),
+              aes(x=as.numeric(wn),ymin=min,ymax=max),
+              fill="lightgrey",alpha=.5)+
+  geom_line(data=spc_summary_top%>%filter(n<10),
+            aes(x=as.numeric(wn),
+                y=mean,group=site_id),col="grey",alpha=.5)+
+  geom_line(data=spc_summary_top%>%filter(site_id%in%sel_sites),
+            aes(x=as.numeric(wn),y=mean,col=site_id))+
+  scale_x_log10(expression("Wavenumber [c"*m^-1*"]"),breaks=c(500,750,1000,1500,2000,3000))+
+  ggthemes::scale_color_colorblind("Site")+
+  ylab("Absorbance")+
+  theme_minimal()+
+  coord_cartesian(ylim=c(1.1,3.6),xlim=c(400,4000),expand = 0)+
+  theme(axis.title = element_text(size=18),
+        axis.text = element_text(size=18),
+        legend.position="none"))%>%
+  ggsave(filename="topsoil_spc_POSTER.png",
+         path = paste0(code_dir,"/GitLab/bdf-ssl_code/plots/"),
+         device = "png",
+         #dpi=300,
+         width = 12,
+         height = 5
+  )
+
 
 
 ### PCA ####
