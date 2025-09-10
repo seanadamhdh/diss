@@ -3729,9 +3729,9 @@ if(F){ # takes quite some time to run
   #### frisch ####
   # load BDF_frisch original data (3 samples omitted from BDF-SSL later on)
   {
-    tmp1=read_rds(paste0(data_dir,"/BDF/BDF-SSL/4_datasets/Adam-2024_BDF_frisch_sub-1"))
-    tmp2=read_rds(paste0(data_dir,"/BDF/BDF-SSL/4_datasets/Adam-2024_BDF_frisch_sub-2"))
-    tmp3=read_rds(paste0(data_dir,"/BDF/BDF-SSL/4_datasets/Adam-2024_BDF_frisch_sub-3"))
+    tmp1=read_rds(paste0(data_dir,"Sean_Environment/BDF/BDF-SSL/4_datasets/Adam-2024_BDF_frisch_sub-1"))
+    tmp2=read_rds(paste0(data_dir,"Sean_Environment/BDF/BDF-SSL/4_datasets/Adam-2024_BDF_frisch_sub-2"))
+    tmp3=read_rds(paste0(data_dir,"Sean_Environment/BDF/BDF-SSL/4_datasets/Adam-2024_BDF_frisch_sub-3"))
     BDF_frisch=rbind(
       tmp1,
       tmp2,
@@ -3840,6 +3840,8 @@ if(F){ # takes quite some time to run
   mbl_frisch=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/mbl_frisch"))
   
   mbl_zeitreihe=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/mbl_zeitreihe"))
+  
+  source(paste0(code_dir,"/GitHub/Diss/get_eval_obs_pred.R"))
 
 }
 
@@ -3857,10 +3859,17 @@ saveRDS(all_data,"C:/Users/adam/Desktop/UNI/PhD/DISS/data/temp/all_data")
 
 all_data=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/all_data"))
 
-# !!! log1p mbl are not expm1 yet !!!
+# !!! log1p mbl are not expm1 yet !!! -> accounted for in get_eval_obs_pred
 # !!! possibly ID mismatch for MBL_frisch !!!
 
 
+
+
+
+## PLOT obs pred ####
+
+
+get_eval_obspred("cubist")
 
 
 ## eval frisch / zeitreihe pred ####
@@ -3916,6 +3925,10 @@ saveRDS(eval_all,paste0(data_dir,"/Sean_Environment/R_main/model_out/all_eval"))
 saveRDS(eval_zeitreihe,paste0(data_dir,"/Sean_Environment/R_main/model_out/all_zeitreihe"))
 saveRDS(eval_frisch,paste0(data_dir,"/Sean_Environment/R_main/model_out/all_frisch"))
 
+
+eval_all<-readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/all_eval"))
+eval_zeitreihe<-readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/all_zeitreihe"))
+eval_frisch<-readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/all_frisch"))
 ## 2024models all evaluation test + zeitreihe ####
 
 ### all testing ####
@@ -3930,10 +3943,122 @@ tibble(type="mbl",mbl_eval$new_eval_table)
 )->all_test_eval
 
 
-#### obspredplots ####
+### obspredplots ####
+#### build master table #### 
+all_test_eval%>%
+  filter(!str_detect(variable,"ratio"))%>%
+  group_by(type,variable)%>%
+  rowwise%>%
+  transmute(best=get_best(all_test_eval,type_ = type,variable_ = variable,metric="rmse"))%>%
+  unique()->best_mod
 
-pls_eval$Obs_Pred_data%>%names
+obs_pred_table=c()
+require(progress)
+pb=progress_bar$new(total=nrow(best_mod))
+for (i in best_mod$best){
+  obs_pred_table=bind_rows(
+    obs_pred_table,
+    left_join(get_eval_obspred(i),best_mod,by=c("model"="best")))
+  pb$tick()
+}
 
+saveRDS(obs_pred_table,paste0(data_dir,"/Sean_Environment/R_main/model_out/obs_pred_table"))
+
+
+#### plotting ####
+variable_="Ca_t"
+
+for (variable_ in names(variable_lookup)){ 
+  print(variable_)
+  obs_pred_table%>%
+  filter(variable==variable_)%>%
+  mutate(set=factor(case_match(set,"train"~"Training set","test"~"Test set","zr"~"Extended library"),levels=c("Test set","Extended library")),
+         model=factor((.data[["model"]]),
+                levels = unique(.data[["model"]])[order(
+                  match(str_sub(unique(.data[["model"]]), 1, 1), c("p", "c", "m"))
+                )]) #brute force order)
+)%>%
+  ggplot(aes(x=obs,y=pred))+#,col=type,shape=set))+
+  geom_abline(slope = 1)+
+  geom_hex(bins=30)+
+  geom_linerange(aes(x=train,ymin=min(pred,na.rm = T)-(max(pred,na.rm=T)-min(pred,na.rm = T))*.025,
+                     ymax=min(pred,na.rm = T)-(max(pred,na.rm=T)-min(pred,na.rm = T))*.1),alpha=.1)+
+    # geom_bin2d(aes(x=train,y=min(pred,na.rm = T)-(max(pred,na.rm=T)-min(pred,na.rm = T))*.08),
+    #          bins=50)+
+  facet_grid(rows=vars(model),
+             cols=vars(set),
+             scales="fixed")+
+  scale_fill_viridis_c(trans="log10")+
+  theme_pubr()+
+  theme( panel.border = element_rect(linetype = "solid",fill = rgb(1,1,1,0)),
+         strip.text.y = element_text(size=10),
+         legend.position = "right",
+         legend.direction = "vertical")+
+  xlab(paste("Observed",variable_lookup[[variable_]]))+
+  ylab(paste("Predicted",variable_lookup[[variable_]]))+
+  coord_fixed(
+    xlim=c(min(
+    obs_pred_table%>%filter(variable==variable_)%>%select(obs,pred),na.rm = T
+                         )-(
+                           max(obs_pred_table%>%filter(variable==variable_)%>%
+                         select(obs,pred),na.rm=T)-min(obs_pred_table%>%filter(variable==variable_)%>%
+                                                         select(obs,pred),na.rm = T))*.05,
+              max(obs_pred_table%>%filter(variable==variable_)%>%
+                    select(obs,pred),na.rm=T)),
+    ylim = c(min(
+      obs_pred_table%>%filter(variable==variable_)%>%select(obs,pred),na.rm = T
+    )-(
+      max(obs_pred_table%>%filter(variable==variable_)%>%
+            select(obs,pred),na.rm=T)-min(obs_pred_table%>%filter(variable==variable_)%>%
+                                            select(obs,pred),na.rm = T))*.05,
+    max(obs_pred_table%>%filter(variable==variable_)%>%
+          select(obs,pred),na.rm=T))
+              )->obspredplt
+  # ylim=range(obs_pred_table%>%filter(variable==variable_)%>%select(obs,pred),na.rm=T))
+obspredplt
+
+ggsave(obspredplt,
+       filename=paste0(variable_,"_obspred_tst_zr.png"),
+       path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/obs-pred_tst-zr",
+       width=8,
+       height=8)
+  }
+
+
+
+
+#### investigate #####
+filter(all_data,str_starts(LabelEvent,"LC"))%>%
+  ggplot(aes(x=`Ca_t [mg/kg]`,
+             y=`pls_spc_sg1d_rs4-log1p-Ca_t`$pred,
+             col=site_id))+
+  geom_point(alpha=.5)+geom_abline(slope = 1)+
+  scale_color_discrete("BDF site")+
+  ylab("Predicted Ca_t [mg/kg]")+
+  xlab("Observed Ca_t [mg/kg]")+
+  theme_pubr()+
+  theme(legend.position = "right",legend.direction = "vertical")+
+  coord_fixed()
+
+
+
+(filter(all_data,str_starts(LabelEvent,"LC"))%>%
+  ggplot(aes(x=`Pt [wt-%]`,
+             y=`cubist_spc_sg_snv_rs4-none-Pt`$pred,
+             col=if_else(year(DateEvent)>2006,">2006","<=2006",missing = "BfUL 2022/2023")))+
+  geom_point(alpha=.5)+geom_abline(slope = 1)+
+  scale_color_manual("Sampling year",values=colorblind_safe_colors()[c(7,6,4)])+
+  ylab("Predicted Pt [wt-%]")+
+  xlab("Observed Pt [wt-%]")+
+  theme_pubr()+
+  #theme(legend.position = "top",legend.direction = "vertical")+
+  coord_fixed())%>%
+  ggsave(
+         filename=paste0("Pt_samplingYr","_obspred_tst_zr.png"),
+         path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/obs-pred_tst-zr",
+         width=6,
+         height=6)
+  
 
 
 # best rmse_test
@@ -4484,7 +4609,7 @@ write_excel_csv(best_candidates,"C:/Users/adam/Desktop/UNI/PhD/DISS/tables/best_
     theme_pubr()+
     theme(axis.text.x = element_text(angle=90,hjust=1))+
     scale_y_continuous("Standardised Bias",expand=c(0,0))+
-    scale_fill_manual("Quality (|bias|)",breaks=c(#"a","b","c",
+    scale_fill_manual("Quality (Standardised bias)",breaks=c(#"a","b","c",
       c("vp","p","f","g","vg","e"),"tst","zr"),
       labels=c(#"PLS","Cubist","MBL",
         "Very Poor (> 0.5)" ,"Poor (0.3 - 0.5)","Fair (0.2 - 0.3)","Good (0.1 - 0.2)", "Very Good (0.05 - 0.1)","Excellent (< 0.05)"
@@ -4499,6 +4624,8 @@ write_excel_csv(best_candidates,"C:/Users/adam/Desktop/UNI/PhD/DISS/tables/best_
           axis.title.x = element_blank(),
           axis.text.x = element_text(angle=45,hjust=1))->bias_comparison
   
+  
+  bias_comparison
   
   ggsave(plot=bias_comparison+theme(legend.position = "none"),filename="bias_comp.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 4)
   # legend

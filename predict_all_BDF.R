@@ -35,6 +35,8 @@ saveRDS(allBDF_OSSL,"//zfs1.hrz.tu-freiberg.de/fak3ibf/Hydropedo/Sean_Environmen
 allBDF_OSSL=readRDS("//zfs1.hrz.tu-freiberg.de/fak3ibf/Hydropedo/Sean_Environment/OSSL/DataTable_OSSLpred")
 
 allBDF_OSSL_data=left_join(BDF_SSL,allBDF_OSSL,by="LabelEvent")
+
+
 if(F){
 (allBDF_OSSL%>%
     names()%>%
@@ -143,6 +145,7 @@ for (i in names(OSSL_var_lookup)){
     )
   )
   
+  if(allBDF_OSSL_data%>%filter(LabelEvent%>%str_starts("LC"))%>%transmute(x=.data[[i]],y=.data[[paste0(OSSL_var_lookup[i],"_pred")]])%>%na.omit()%>%nrow>0){
   out_zr=bind_rows(out_zr,
                    tibble(variable=i,
                           ossl_model=OSSL_var_lookup[i],
@@ -150,6 +153,15 @@ for (i in names(OSSL_var_lookup)){
                                                   "x","y")
                    )
   )
+  }  else{
+    out_zr=bind_rows(out_zr,
+              tibble(variable=i,
+                     ossl_model=OSSL_var_lookup[i],
+                     as_tibble(setNames(as.list(rep(NA, ncol(out_zr)-2)), names(out_zr)[-c(1,2)]))
+              )
+    )
+  }
+  
   
   
   plt[[i]]=allBDF_OSSL_data%>%transmute(x=.data[[i]],y=.data[[paste0(OSSL_var_lookup[i],"_pred")]])%>%na.omit()%>%
@@ -305,7 +317,7 @@ eval_zeitreihe%>%rowwise()%>%
     aes(xmin=-Inf,xmax=Inf,ymin=ymin,ymax=ymax,fill=group),alpha=.25)+
     
     
-    geom_col(aes(x=variable,y=linsCCC,fill=type),
+    geom_col(aes(x=variable,y=linsCCC,fill=factor(type,levels = c("pls","cubist","mbl","OSSL"))),
              position = position_dodge(width = .7),width=.7,col="black")+
     
     coord_cartesian(ylim = c(0,1))+
@@ -320,7 +332,10 @@ eval_zeitreihe%>%rowwise()%>%
       labels=c(#"PLS","Cubist","MBL",
         "Very Poor (< 0.65)" ,"Poor  (0.65 - 0.80)","Fair (0.80 - 0.90)","Good (0.90 0.95)", "Very Good (0.95 - 0.99)","Excellent (> 0.99)"
         ,c("BDF PLS","BDF Cubist","BDF MBL","OSSL")),
-      values = c(unlist(bg_colors),setNames(colorblind_safe_colors()[c(5,2,7,4)],c("pls","cubist","mbl","OSSL"))))
+      values = c(unlist(bg_colors),setNames(colorblind_safe_colors()[c(5,2,7,4)],c("pls","cubist","mbl","OSSL"))))+   
+    geom_errorbar(data=eval_zeitreihe%>%bind_rows(eval_OSSL_zr)%>%filter(variable%in%combined_eval$variable)%>%group_by(type,variable)%>%summarise(across(.cols = c(linsCCC,rmse,rpd),.fns = list(mean=mean,min=min,max=max,median=median))),
+                  aes(x=variable,ymin = linsCCC_min,ymax=linsCCC_max,y=linsCCC_median,group=factor(type,levels = c("pls","cubist","mbl","OSSL"))),width=.25,position=position_dodge(width=.7))
+
 )->plt_ossl_vs_bdf_linccc
 
 plt_ossl_vs_bdf_linccc
@@ -336,6 +351,55 @@ ggsave(plot=get_legend(plt_ossl_vs_bdf_linccc),filename="plt_ossl_vs_bdf_linccc_
   combined_eval%>%
     ggplot()+
     
+    
+    geom_rect(data=tibble(
+      ymin=c(-Inf,-.5,-.3,-.2,-.1,-.05,.05,.1,.2,.3,.5),
+      ymax=c(-.5,-.3,-.2,-.1,-.05,.05,.1,.2,.3,.5,Inf),
+      group=c("vp","p","f","g","vg","e","vg","g","f","p","vp"),
+    ),
+    aes(xmin=-Inf,xmax=Inf,ymin=ymin,ymax=ymax,fill=group),alpha=.25)+
+    
+    geom_col(aes(x=variable,y=bias/sdev,fill=factor(type,levels = c("pls","cubist","mbl","OSSL"))),
+             position = position_dodge(width = .7),width=.7,col="black")+
+    
+    coord_cartesian(ylim = c(-1.05,1.05))+
+    
+    theme_pubr()+
+    theme(#axis.text.x = element_text(angle=45,hjust=1,vjust=1),
+      axis.title.x = element_blank())+
+    scale_x_discrete(breaks=names(variable_lookup), labels = unlist(variable_lookup)%>%str_replace("  "," "))+
+    scale_y_continuous("Standardised bias",expand = c(0,0))+
+    scale_fill_manual("Quality",breaks=c(#"a","b","c",
+      c("vp","p","f","g","vg","e"),c("pls","cubist","mbl","OSSL")),#"test","gt300"),
+      labels=c(#"PLS","Cubist","MBL",
+        "Very Poor (> 0.5)" ,"Poor (0.3 - 0.5)","Fair (0.2 - 0.3)","Good (0.1 - 0.2)", "Very Good (0.05 - 0.1)","Excellent (< 0.05)"
+    ,c("BDF PLS","BDF Cubist","BDF MBL","OSSL")),
+      values = c(unlist(bg_colors),setNames(colorblind_safe_colors()[c(5,2,7,4)],c("pls","cubist","mbl","OSSL"))))+
+    geom_errorbar(data=eval_zeitreihe%>%mutate(std_bias=bias/sdev)%>%
+                    bind_rows(eval_OSSL_zr)%>%filter(variable%in%combined_eval$variable)%>%
+                    group_by(type,variable)%>%summarise(across(.cols = c(linsCCC,rmse,rpd,std_bias),.fns = list(mean=mean,min=min,max=max,median=median))),
+                  aes(x=variable,ymin = std_bias_min,ymax=std_bias_max,y=std_bias_median,
+                      group=factor(type,levels = c("pls","cubist","mbl","OSSL"))),
+                  width=.25,position=position_dodge(width=.7))
+)->plt_ossl_vs_bdf_bias
+
+plt_ossl_vs_bdf_bias
+
+
+ggsave(plot=plt_ossl_vs_bdf_bias #+theme(legend.position = "none")
+       ,filename="plt_ossl_vs_bdf_bias.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 10,height = 5)
+# legend
+ggsave(plot=get_legend(plt_ossl_vs_bdf_bias),filename="plt_ossl_vs_bdf_bias_legend.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 4)
+
+
+
+
+
+####bias####
+(
+  combined_eval%>%
+    ggplot()+
+    
     # williams 2014 (though some authors are far less rigourous with rpd>2 as very good)
     geom_rect(data=tibble(
       ymin=c(-Inf,2,2.5,3,3.5,4),
@@ -344,10 +408,10 @@ ggsave(plot=get_legend(plt_ossl_vs_bdf_linccc),filename="plt_ossl_vs_bdf_linccc_
     ),
     aes(xmin=-Inf,xmax=Inf,ymin=ymin,ymax=ymax,fill=group),alpha=.25)+
     
-    geom_col(aes(x=variable,y=rpd,fill=type),
+    geom_col(aes(x=variable,y=rpd,fill=factor(type,levels = c("pls","cubist","mbl","OSSL"))),
              position = position_dodge(width = .7),width=.7,col="black")+
     
- #   coord_cartesian(ylim = c(0,1))+
+    coord_cartesian(ylim = c(0,5.1))+
     
     theme_pubr()+
     theme(#axis.text.x = element_text(angle=45,hjust=1,vjust=1),
@@ -359,26 +423,79 @@ ggsave(plot=get_legend(plt_ossl_vs_bdf_linccc),filename="plt_ossl_vs_bdf_linccc_
       labels=c(#"PLS","Cubist","MBL",
         "Very Poor (< 2.0)" ,"Poor (2.0 - 2.5)","Fair (2.5 - 3.0)","Good (3.0 - 3-5)", "Very Good (3.5 - 4.0)","Excellent (> 4.0)"
         ,c("BDF PLS","BDF Cubist","BDF MBL","OSSL")),
-      values = c(unlist(bg_colors),setNames(colorblind_safe_colors()[c(5,2,7,4)],c("pls","cubist","mbl","OSSL"))))
+      values = c(unlist(bg_colors),setNames(colorblind_safe_colors()[c(5,2,7,4)],c("pls","cubist","mbl","OSSL"))))+
+    geom_errorbar(data=eval_zeitreihe%>%bind_rows(eval_OSSL_zr)%>%filter(variable%in%combined_eval$variable)%>%group_by(type,variable)%>%summarise(across(.cols = c(linsCCC,rmse,rpd),.fns = list(mean=mean,min=min,max=max,median=median))),
+                  aes(x=variable,ymin = rpd_min,ymax=rpd_max,y=rpd_median,group=factor(type,levels = c("pls","cubist","mbl","OSSL"))),width=.25,position=position_dodge(width=.7))
 )->plt_ossl_vs_bdf_rpd
 
 plt_ossl_vs_bdf_rpd
 
 
-ggsave(plot=plt_ossl_vs_bdf_linccc #+theme(legend.position = "none")
-       ,filename="plt_ossl_vs_bdf_linccc.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 10,height = 5)
+ggsave(plot=plt_ossl_vs_bdf_rpd #+theme(legend.position = "none")
+       ,filename="plt_ossl_vs_bdf_rpd.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 10,height = 5)
 # legend
-ggsave(plot=get_legend(plt_ossl_vs_bdf_linccc),filename="plt_ossl_vs_bdf_linccc_legend.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 4)
+ggsave(plot=get_legend(plt_ossl_vs_bdf_rpd),filename="plt_ossl_vs_bdf_rpd_legend.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 4)
 
 
+
+# comparison of residuals
+ggplot(ossl_bdf_pred%>%left_join(Data_table_reference,by=c("ID"="LabelEvent")),
+       aes(x=`TC [wt-%]`,
+           y=(abs(`cubist_spc_sg_snv_rs4-log1p-TC`$pred-`TC [wt-%]`)-
+                abs(c.tot_usda.a622_w.pct_pred-`TC [wt-%]`)),
+           col=site_id)
+       )+
+  geom_point()+
+  scale_y_continuous("<-- BDF-SSL better  -- Differnece in residuals --  OSSL better -->")+
+  #geom_smooth(method="lm",se=F)+
+  #geom_point(aes(y=c.tot_usda.a622_w.pct_pred-`TC [wt-%]`),col="red")+
+  geom_hline(yintercept = 0)+#+coord_cartesian(ylim = c(-10,10))
+  theme_pubr()+
+  theme(legend.position = "right",legend.direction = "vertical")+
+  guides(color = guide_legend(ncol = 2)) 
 
 #' 
-#' Merge evaluation tables of OSSL and BDF
+#' DONE Merge evaluation tables of OSSL and BDF
 #' compare evaluation stats, add plots to diss
 #' DONE-ish
 #' 
-#' Add range or boxplot of evaluation for BDF (best zr != best test (to vis range of accuracy of model runs))
+#' DONE Add range or boxplot of evaluation for BDF (best zr != best test (to vis range of accuracy of model runs))
 #'  
+#'  
+#'  
+
+
+
+write_excel_csv(combined_eval%>%
+                  mutate(rmse = signif(rmse,digits=3),
+                         R2 = signif(R2,digits=3),
+                         linsCCC = signif(linsCCC,digits=3),
+                         rpd = signif(rpd,digits=3),
+                         bias = signif(bias,digits=3),
+                         b = signif(b,digits=3)
+                         )
+                ,"C:/Users/adam/Desktop/UNI/PhD/DISS/tables/combined_eval.csv")
+
+
+
+
+ggplot(ossl_bdf_pred)+
+  geom_density(aes(x=clay.tot_usda.a334_w.pct_pred+
+                     silt.tot_usda.c62_w.pct_pred+
+                     sand.tot_usda.c60_w.pct_pred,
+                   y=after_stat(count)),
+               fill=colorblind_safe_colors()[4],
+               col=colorblind_safe_colors()[4],
+               alpha=.2)+
+  geom_density(aes(x=`cubist_spc_sg_snv_rs4-none-T`$pred+
+                     `cubist_spc_sg_rs4-none-U`$pred+
+                     `cubist_spc_sg1d_rs4-none-S`$pred,after_stat(count)),
+               fill=colorblind_safe_colors()[7],
+               col=colorblind_safe_colors()[7],
+               alpha=.2)+
+  geom_vline(xintercept = 100)+
+  theme_pubr()+
+  scale_x_continuous("Recovery clay + silt + sand [%]",breaks = c(50,75,90,100,110,125,150))
 
 
 
