@@ -1,6 +1,6 @@
 
 # source LOAD chunk from C:/Users/adam/Documents/GitHub/Diss/load-and-eval_BDF-SSL.R
-  var_list=c("","Ni_t")
+  var_list=c("dB [g/cm3]","pH_CaCl2")
   
 ### spc-set(s) ####
 set_list<-c(
