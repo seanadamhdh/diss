@@ -392,11 +392,11 @@ select("site","method","n","min","mean","median","max","rmse","rpd","R2","linsCC
     coord_fixed(xlim=c(-1,4.5),ylim = c(-1,4.5),expand=F)+
     xlab(expression("Observed TOC stock [T/(ha c"*m^-1*")]"))+
     ylab(expression("Predicted TOC stock [T/(ha c"*m^-1*")]"))+
-    scale_shape_manual("Left out (Test set site)",
+    scale_shape_manual("Left out site (Test set)",
                        values = c(15,16,17,8))+
-    scale_color_manual("Left out (Test set site)",
+    scale_color_manual("Left out site (Test set)",
                        values=colorblind_safe_colors()[c(4,6,7,8)])+
-    ggtitle("LOSO Prediction (TOC*dB105)"),
+    ggtitle("LOSO prediction (TOC*dB105)"),
   ggplot(los_all_pred,aes(x=dBstock_obs,y=dBstock_pred#if_else(dBstock_pred<0,0,dBstock_pred)
                           ,col=site,shape=site))+
     geom_abline(slope = 1)+
@@ -409,7 +409,7 @@ select("site","method","n","min","mean","median","max","rmse","rpd","R2","linsCC
                        values = c(15,16,17,8))+
     scale_color_manual("Left out site (Test set)",
                        values=colorblind_safe_colors()[c(4,6,7,8)])+
-    ggtitle("LOSO Prediction (direct)"),
+    ggtitle("LOSO prediction (direct)"),
  # SVM models calibrated from archive samples
    # ggplot(pred_tmp,aes(x=obs,y=pred_dB_pred_TOC#if_else(dBstock_pred<0,0,dBstock_pred)
    #                        ,col=site,shape=site))+

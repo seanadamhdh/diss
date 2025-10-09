@@ -647,8 +647,8 @@ tmp%>%filter(Device!="Profilspaten"&u3<=.5)%>%
        summarise(TOC_budget_sum=sum(TOC_budget))%>%
        summarise(
          STOCK=mean(TOC_budget_sum),
-         minSTOCK=max(TOC_budget_sum),
-         maxSTOCK=min(TOC_budget_sum),
+         minSTOCK=min(TOC_budget_sum),
+         maxSTOCK=max(TOC_budget_sum),
        ))%>%
       transmute(
         site_id=paste0("BDF",BDF),
