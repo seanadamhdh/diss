@@ -459,6 +459,231 @@ ggsave(plot=get_legend(p),filename="TOC profile_legend.png",path="C:/Users/adam/
   group_by(site_id,o3,u3)%>%
   summarise(across(.cols=`TOC [wt-%]`,.fns=~mean(.,na.rm=T)))
 
+############################################################################################### #
+## insert - Geospatial ####
+############################################################################################### #
+############################################################################################### #
+require(sp)
+require(gstat)
+# TOC budget
+maxDepth=50
+BDF_frisch$TRD%>%filter(sample_id%>%substr(2,2)%in%c("R","Q")&Tiefe_von>=0)%>%
+  left_join(BDF_frisch$soliTOC,by=c("sample_id"="Name"))%>%
+  mutate(
+    TOC_budget_lutroFB=TOC/100 #gC/g
+    *Lutro_density_FB# gC/cm3
+    *1000#kg/m³
+    *10#t/ha*m
+    *(abs(Tiefe_von-Tiefe_bis)/100)
+  )%>%
+  filter(Tiefe_bis<=maxDepth&!(BDF=="23"&Position=="P1"))%>%
+  group_by(BDF,Typ,Tiefe_von,Tiefe_bis,Position)%>%
+  summarise(across(contains("TOC_budget"),.fns=mean))%>%#(TOC_budget,na.rm = T))%>%
+  group_by(BDF,Typ,Position)%>%
+  summarise(
+    TOC_sum_lutroFB=sum(TOC_budget_lutroFB)
+  )%>%
+  transmute(x=case_match(Position,
+                         "Profil"~1,
+                         "Y17"~0,
+                         "Y0.7"~0,
+                         "X0"~0,
+                         "X5"~5,
+                         "X31"~31,
+                         "Profil_2"~1,
+                         "Profil_1"~.8,
+                         "Profil_3"~1.2,
+                         "P1"~.8,
+                         "P2"~1,
+                         "P3"~1.2),    
+            y=case_match(Position,
+                         "Profil"~-.5,
+                         "Y17"~17,
+                         "Y0.7"~.4,
+                         "X0"~0,
+                         "X5"~0,
+                         "X31"~0,
+                         "Profil_2"~-.5,
+                         "Profil_1"~-.5,
+                         "Profil_3"~-.5,
+                         "P1"~-.2,
+                         "P2"~-.2,
+                         "P3"~-.2),
+            #TC=soliTOC$TC,
+            #TOC=soliTOC$TOC,
+            #TOC400=soliTOC$TOC400,
+            #ROC=soliTOC$ROC,
+            #TIC900=soliTOC$TIC900,
+            TOC_budget=TOC_sum_lutroFB,   
+            BDF=BDF)%>%#filter(BDF=="35")%>%
+  na.omit%>%
+  tibble()->BDF_frisch_geo
+
+BDF_frisch_geo_semivar=BDF_frisch_geo
+coordinates(BDF_frisch_geo_semivar)=~x+y
+if(F){variogram(data=BDF_frisch_geo_semivar,TOC_budget~1,cutoff=32)%>%plot
+
+svg(paste0(root_dir,"/GitHub/BDF/BDF-SSL/3_r_scripts/temp/BDF_frisch_local_heterogenity_TOCbudget40.svg"),width=8,height=5)
+ggplot(BDF_frisch_geo,aes(x=sqrt(x^2+y^2),y=TOC_budget,col=BDF))+
+  geom_point()+
+  geom_smooth(method="lm",formula=y~1)+
+  ylab(expression("TOC [T C  "*ha^-1*"]"))+
+  xlab("Distanz [m]")+
+  theme_pubr()
+dev.off()
+
+
+(
+  ggplot(BDF_frisch%>%mutate(x=case_match(sampling_data$Position,
+                                          "Profil"~1,
+                                          "Y17"~0,
+                                          "Y0.7"~0,
+                                          "X0"~0,
+                                          "X5"~5,
+                                          "X31"~31,
+                                          "Profil_2"~1,
+                                          "Profil_1"~.8,
+                                          "Profil_3"~1.2,
+                                          "P1"~.8,
+                                          "P2"~1,
+                                          "P3"~1.2),    
+                             y=case_match(sampling_data$Position,
+                                          "Profil"~-.5,
+                                          "Y17"~17,
+                                          "Y0.7"~.4,
+                                          "X0"~0,
+                                          "X5"~0,
+                                          "X31"~0,
+                                          "Profil_2"~-.5,
+                                          "Profil_1"~-.5,
+                                          "Profil_3"~-.5,
+                                          "P1"~-.2,
+                                          "P2"~-.2, "P3"~-.2),
+                             BDF=sampling_data$BDF,
+                             Tiefe=sampling_data$Tiefe_von+sampling_data$Tiefe_bis/2,
+  )%>%filter(Tiefe<40),
+  aes(x=sqrt(x^2+y^2),
+      y=soliTOC$TOC,
+      col=as.character(paste(BDF,Tiefe))))+
+    geom_point()+geom_smooth(se=T,method="loess",span=10)+theme_pubr())#%>%ggplotly()
+}
+
+BDF_SSL%>%filter(Campaign%>%str_detect("field"))%>%mutate(x=case_match(Profile,
+                                 "Profil"~1,
+                                 "Y17"~0,
+                                 "Y0.7"~0,
+                                 "X0"~0,
+                                 "X5"~5,
+                                 "X31"~31,
+                                 "Profil_2"~1,
+                                 "Profil_1"~.8,
+                                 "Profil_3"~1.2,
+                                 "P1"~.8,
+                                 "P2"~1,
+                                 "P3"~1.2),    
+                    y=case_match(Profile,
+                                 "Profil"~-.5,
+                                 "Y17"~17,
+                                 "Y0.7"~.4,
+                                 "X0"~0,
+                                 "X5"~0,
+                                 "X31"~0,
+                                 "Profil_2"~-.5,
+                                 "Profil_1"~-.5,
+                                 "Profil_3"~-.5,
+                                 "P1"~-.2,
+                                 "P2"~-.2, "P3"~-.2),
+                    BDF=site_id,
+                    Typ=Device,
+                    Tiefe=as.character((Depth_top+Depth_bottom)/2*100),
+                    z=as.numeric(Tiefe))%>%
+  filter(Typ=="Rammkern")%>%
+  group_by(Tiefe)%>%
+  mutate(TC_norm=`TC [wt-%]`/median(`TC [wt-%]`,na.rm = T),
+         TOC_norm=`TOC [wt-%]`/median(`TOC [wt-%]`,na.rm = T),
+         TOC400_norm=`TOC400 [wt-%]`/median(`TOC400 [wt-%]`,na.rm = T),
+         ROC_norm=`ROC [wt-%]`/median(`ROC [wt-%]`,na.rm = T),
+         TIC900_norm=`TIC900 [wt-%]`/median(`TIC900 [wt-%]`,na.rm = T),
+         TC=`TC [wt-%]`,
+         TOC=`TOC [wt-%]`,
+         TOC400=`TOC400 [wt-%]`,
+         ROC=`ROC [wt-%]`,
+         TIC900=`TIC900 [wt-%]`)->norm_TOC
+
+
+{
+  semivar_mod=c()
+  semivar_out=c()
+  for (maxDepth in c(10,30,50)){
+  semivar_plots=c()
+  for( i in c("BDF02","BDF23","BDF30","BDF35")){
+    BDF_frisch_geo_semivar=norm_TOC%>%mutate(Tiefe=as.numeric(Tiefe))%>%filter(BDF==i&Tiefe<=maxDepth&Tiefe>0)
+    coordinates(BDF_frisch_geo_semivar)=~x+y
+    v_TOC400=variogram(data=BDF_frisch_geo_semivar,TOC400~x+y,cutoff=37)
+    v_mod_TOC400=fit.variogram(object = v_TOC400,model = vgm(model = "Nug"))
+    
+    v_ROC=variogram(data=BDF_frisch_geo_semivar,ROC~x+y,cutoff=37)
+    v_mod_ROC=fit.variogram(object = v_ROC,model = vgm(model = "Nug"))
+    
+    v_TIC900=variogram(data=BDF_frisch_geo_semivar,TIC900~x+y,cutoff=37)
+    v_mod_TIC900=fit.variogram(object = v_TIC900,model = vgm(model = "Nug"))
+    
+    
+    semivar_out=bind_rows(
+      semivar_out,
+      tibble(model=v_mod_TOC400$model,
+             depth=maxDepth,
+             site_id=i,
+             variable="TOC400",
+             nugget_psill=v_mod_TOC400$psill),
+      tibble(model=v_mod_TOC400$model,
+             depth=maxDepth,
+             site_id=i,
+             variable="ROC",
+             nugget_psill=v_mod_ROC$psill),
+      tibble(model=v_mod_TOC400$model,
+             depth=maxDepth,
+             site_id=i,
+             variable="TIC900",
+             nugget_psill=v_mod_TIC900$psill)
+    )
+    
+    semivar_mod[[as.character(maxDepth)]][[i]][["TOC400"]]=list(mod=v_mod_TOC400,vg=v_TOC400)
+    semivar_mod[[as.character(maxDepth)]][[i]][["ROC"]]=list(mod=v_mod_ROC,vg=v_ROC)
+    semivar_mod[[as.character(maxDepth)]][[i]][["TIC900"]]=list(mod=v_mod_TIC900,vg=v_TIC900)
+    
+    
+    semivar_plots[[i]]=ggplot()+
+      
+      geom_point(data=v_TOC400,aes(x=dist,y=gamma,col="TOC400",shape="TOC400"))+
+      geom_hline(yintercept = v_mod_TOC400$psill,col=colorblind_safe_colors()[4])+
+      
+      geom_point(data=v_ROC,aes(x=dist,y=gamma*100,col="ROC",shape="ROC"))+
+      geom_hline(yintercept = v_mod_ROC$psill*100,col=colorblind_safe_colors()[6])+
+      
+      geom_point(data=v_ROC,aes(x=dist,y=gamma*100,col="TIC900",shape="TIC900"))+
+      geom_hline(yintercept = v_mod_ROC$psill*100,col=colorblind_safe_colors()[7],linetype="dashed")+
+      
+      ggtitle(i)+
+      xlab("Distance [m]")+
+      scale_y_continuous("Semivariance (TOC400)",sec.axis=sec_axis(name = "Semivariance (ROC, TIC900)",transform = ~./100))+
+      
+      
+      scale_color_manual(paste0("0-",maxDepth," cm"),breaks=c("TOC400","ROC","TIC900"),values=colorblind_safe_colors()[c(4,6,7)])+
+      scale_shape_discrete(paste0("0-",maxDepth," cm"),breaks=c("TOC400","ROC","TIC900"))+
+      theme_pubr()+
+      theme(axis.title.y.right = element_text(angle=90))
+  }
+  
+  
+  ggsave(plot = ggarrange(plotlist = semivar_plots,common.legend = T),
+        path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+         filename=paste0("BDF_frisch_local_heterogenity_semivariance_",maxDepth,".png"),width=8,height=5)
+  }
+}
+############################################################################################### #
+## end of insert ####
+############################################################################################### #
 
 
 ## bulk density and FSS calculation effect ####
@@ -1766,7 +1991,7 @@ ggplot(TRD_prep) +
     scale_x_reverse("Tiefe [cm]",
                     breaks=seq(0,150,50),
                     minor_breaks=seq(0,150,10))+
-    #scale_color_manual(breaks=c("02","23","30","35"),values=colorblind_safe_colors[c(2:4,8)],labels=paste("BDF",c("02","23","30","35")))+
+    #scale_color_manual(breaks=c("02","23","30","35"),values=colorblind_safe_colors()[c(2:4,8)],labels=paste("BDF",c("02","23","30","35")))+
     scale_linetype_manual("",
                           breaks=c("neu","BDF-Referenz","Profilspaten","Quicksampler","Rammkern"),
                           values=c("solid","solid","dotdash","dashed","dotted"),
@@ -1857,7 +2082,7 @@ ggplot(TRD_prep) +
     scale_x_reverse("Tiefe [cm]",
                     breaks=seq(0,150,50),
                     minor_breaks=seq(0,150,10))+
-    #scale_color_manual(breaks=c("02","23","30","35"),values=colorblind_safe_colors[c(2:4,8)],labels=paste("BDF",c("02","23","30","35")))+
+    #scale_color_manual(breaks=c("02","23","30","35"),values=colorblind_safe_colors()[c(2:4,8)],labels=paste("BDF",c("02","23","30","35")))+
     scale_linetype_manual("",
                           breaks=c("neu","BDF-Referenz","Profilspaten","Quicksampler","Rammkern"),
                           values=c("solid","solid","dotdash","dashed","dotted"),
@@ -2085,7 +2310,7 @@ mutate(Lagerungsdichte_Referenz,TOC_budget=TRD*CORG)%>%filter()
           geom_text(angle=90,aes(x=BDF,group=Typ,y=10,label=ifelse(is.na(TOC_sum_lutroAll_n),"",paste0("n=",TOC_sum_lutroAll_n))),hjust = .5,vjust=.5,
                     position=position_dodge(width=.925),size = unit(4,"pt"))+
           theme_pubr()+
-          scale_fill_manual(breaks=c("Quicksampler","Rammkern","Referenz neu","zReferenz"),values=colorblind_safe_colors[c(2:4,7)],
+          scale_fill_manual(breaks=c("Quicksampler","Rammkern","Referenz neu","zReferenz"),values=colorblind_safe_colors()[c(2:4,7)],
                             labels=c("Quicksampler","Rammkern","Referenz neu","Referenz"))+
           ylab(expression("TOC [T C "*ha^-1*"]"))+
           xlab("BDF")+
@@ -6046,7 +6271,7 @@ write_excel_csv(best_candidates,"C:/Users/adam/Desktop/UNI/PhD/DISS/tables/best_
         scale_x_reverse("Tiefe [cm]",
                         breaks=seq(0,150,50),
                         minor_breaks=seq(0,150,10))+
-        #scale_color_manual(breaks=c("02","23","30","35"),values=colorblind_safe_colors[c(2:4,8)],labels=paste("BDF",c("02","23","30","35")))+
+        #scale_color_manual(breaks=c("02","23","30","35"),values=colorblind_safe_colors()[c(2:4,8)],labels=paste("BDF",c("02","23","30","35")))+
         scale_linetype_manual("",
                               breaks=c("Profilspaten","Quicksampler","Rammkern"),
                               values=c("dotdash","dashed","dotted"),
@@ -6054,7 +6279,7 @@ write_excel_csv(best_candidates,"C:/Users/adam/Desktop/UNI/PhD/DISS/tables/best_
         
         scale_color_manual("",
                            breaks=c("soliTOC","DRIFTS"),
-                           values = c(colorblind_safe_colors[c(7,1)],"black","black","black"),
+                           values = c(colorblind_safe_colors()[c(7,1)],"black","black","black"),
                            labels=c("soliTOC","DRIFTS"))+
         ylab(paste0(var_," [M-%]"))+
         theme_pubr()+
@@ -6125,7 +6350,7 @@ write_excel_csv(best_candidates,"C:/Users/adam/Desktop/UNI/PhD/DISS/tables/best_
         scale_x_reverse("Tiefe [cm]",
                         breaks=seq(0,150,50),
                         minor_breaks=seq(0,150,10))+
-        #scale_color_manual(breaks=c("02","23","30","35"),values=colorblind_safe_colors[c(2:4,8)],labels=paste("BDF",c("02","23","30","35")))+
+        #scale_color_manual(breaks=c("02","23","30","35"),values=colorblind_safe_colors()[c(2:4,8)],labels=paste("BDF",c("02","23","30","35")))+
         scale_linetype_manual("",
                               breaks=c("Profilspaten","Quicksampler","Rammkern","BDF-Referenz"),
                               values=c("dotdash","dashed","dotted","solid"),
@@ -6133,7 +6358,7 @@ write_excel_csv(best_candidates,"C:/Users/adam/Desktop/UNI/PhD/DISS/tables/best_
         
         scale_color_manual("",
                            breaks=c("BDF-Referenz","DRIFTS"),
-                           values = c(colorblind_safe_colors[c(6,7)],"black","black","black"),
+                           values = c(colorblind_safe_colors()[c(6,7)],"black","black","black"),
                            labels=c("Referenz","DRIFTS"))+
         ylab(paste0(var_," [M-%]"))+
         theme_pubr()+
