@@ -3828,7 +3828,7 @@ saveRDS(year_list,"C:/Users/adam/Desktop/UNI/PhD/DISS/plots/year_site_fractionPr
 # 
 # fill_list=col_landuse[substr(label_list,8,8)]
 # names(fill_list)=label_list
-
+## aggregated profile data ####
 cm_aggregate(all_archive,
              depth_top_col = "Depth_top",
              depth_bottom_col = "Depth_bottom",
@@ -3837,7 +3837,9 @@ cm_aggregate(all_archive,
              add_funs = list(mn=~median(.,na.rm=T),
                              q25=~quantile(.,.25,na.rm=T),
                              q75=~quantile(.,.75,na.rm=T),
-                             n=~length(na.omit(.))),
+                             n=~length(na.omit(.)),
+                             min=~min(.,na.rm = T),
+                             max=~max(.,na.rm = T)),
              res_out = .05)->tmp
 
 
@@ -3861,8 +3863,121 @@ sel_sites=
   )#%>%
   pull(site_id)
 
+  
+  ### summary ####
+  
+ tmp%>%
+  filter(site_id%in%c(sel_sites%>%
+                        filter(min_n>3&max_depth>.6
+                               )%>%
+                        pull(site_id)))%>%
+    group_by(site_id)%>%
+    summarise(abs_min=min(ROCratio_min),
+              abs_max=max(ROCratio_max),
+              avg=mean(ROCratio_mean),
+              min_avg=min(ROCratio_mean),
+              max=max(ROCratio_mean),
+              min_n=min(ROCratio_n),
+              max_n=max(ROCratio_n))
+    
+  ### aggregate by main soil type ####
+  
+  cm_aggregate(all_archive%>%
+              mutate(TYPE=if_else(
+                str_split_fixed(`Soil type`,"-",3)[,3]=="",
+                if_else(
+                  str_split_fixed(`Soil type`,"-",3)[,2]=="",
+                  str_split_fixed(`Soil type`,"-",3)[,1],
+                  str_split_fixed(`Soil type`,"-",3)[,2]),
+                  str_split_fixed(`Soil type`,"-",3)[,3])%>%
+                  str_remove_all("[a-z]")%>%
+                  str_remove_all("3")%>%substr(1,1)),
+
+               depth_top_col = "Depth_top",
+               depth_bottom_col = "Depth_bottom",
+               aggregate_list =  c("TOC400 [wt-%]","ROC [wt-%]","TIC900 [wt-%]","TOC [wt-%]","TC [wt-%]","ROCratio"),
+               group_list = c("TYPE"),
+               add_funs = list(mn=~median(.,na.rm=T),
+                               q25=~quantile(.,.25,na.rm=T),
+                               q75=~quantile(.,.75,na.rm=T),
+                               n=~length(na.omit(.)),
+                               min=~min(.,na.rm = T),
+                               max=~max(.,na.rm = T)),
+               res_out = .05)%>%
+    filter(!is.na(TYPE))%>%#pull(TYPE)
+    
+  ggplot(aes(x=(o3+u3)/2))+
+    geom_line(aes(col="Average",
+                  fill="Average",
+                  y=ROCratio_mean,group =paste(TYPE),
+                  alpha = "Average"
+    ),linewidth=1)+
+    geom_ribbon(aes(fill="IQR",
+                    ymin=ROCratio_q25,
+                    ymax=ROCratio_q75,
+                    group = paste(TYPE),
+                    alpha= "IQR"
+    ),
+    col=NA)+
+    geom_ribbon(aes(fill="Range",
+                    ymin=ROCratio_min,
+                    ymax=ROCratio_max,
+                    group = paste(TYPE),
+                    alpha="Range",
+    ),
+    col=NA)+
+    geom_ribbon(aes(ymax=-log(ROCratio_n),ymin=0,col="log(n)",fill="log(n)",alpha="log(n)"))+
+    coord_flip(xlim=c(1,0),ylim=c(-5,25))+
+    scale_x_reverse("Depth [m]")+
+    scale_y_continuous("ROCratio [%]")+
+    scale_color_manual("",breaks=c("Average","IQR","Range","log(n)"),values = c(rep("orange3",3),"grey"))+
+    scale_fill_manual("",breaks=c("Average","IQR","Range","log(n)"),values = c(rep("orange3",3),"grey"))+
+    scale_alpha_manual("",breaks=c("Average","IQR","Range","log(n)"),values = c(1,.3,.1,.3))+
+    geom_vline(xintercept = 0)+
+    geom_hline(yintercept = 0)+
+    facet_wrap(~TYPE,ncol=3,labeller=as_labeller(c("A"="Alluvail soils",
+                                                   "B"="Cambisols",
+                                                   "G"="Gleysols",
+                                                   "L"="Luvisols",
+                                                   "P"="Podzols",
+                                                   "R"="Regosols",
+                                                   "S"="Stagnosols",
+                                                   "T"="Chernozems"))
+               )+
+    theme_pubr()->ROCratioTYPE
+  ROCratioTYPE
+  ggsave(plot=ROCratioTYPE,filename="ROCratioType.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 8,height = 8)
+  # legend
+  
+  
+  
+  
+  
+  tmp%>%
+    mutate(hz=if_else(u3<=.3,"1t","2s"))%>%
+    filter(site_id%in%c(sel_sites%>%
+                          filter(min_n>3&max_depth>.6
+                          )%>%
+                          pull(site_id)))%>%
+    ggplot(aes(x=site_id,group=paste(site_id,hz),y=ROCratio_mean))+
+    geom_boxplot(aes(fill=site_id),alpha=.2,outliers = F)+
+    geom_jitter(aes(col=u3),position=position_jitterdodge(dodge.width = .8,
+                                                          jitter.width = .1))+
+    scale_fill_manual(values = colorblind_safe_colors()[-1])+
+    scale_color_viridis_c()+
+    theme_pubr()
 
 
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
 tmp%>%
   filter(site_id%in%c(sel_sites%>%filter(min_n>3&max_depth>.6)%>%
                         pull(site_id),
@@ -3963,22 +4078,35 @@ tmp%>%
                       "BDF33"))%>%
   #filter(site_id%in%paste0("BDF",c("04","07","13","18","24","33","44")))%>%
   ggplot(aes(x=(o3+u3)/2))+
-  geom_line(aes(col=site_id,y=ROCratio_mean,group =paste(`Land use`,site_id)))+
+  geom_line(aes(col=site_id,
+                y=ROCratio_mean,group =paste(site_id)
+                ),linewidth=1)+
   geom_ribbon(aes(fill=site_id,
                   ymin=ROCratio_q25,
                   ymax=ROCratio_q75,
-                  group = paste(`Land use`,site_id)),
-              alpha=.1)+
-  geom_ribbon(aes(ymax=ROCratio_n/-50,ymin=0,col=site_id),fill="lightgray",alpha=.2)+
+                  group = paste(site_id)
+                  ),
+              alpha=.3)+
+  #geom_ribbon(aes(ymax=-log(ROCratio_n),ymin=0,col="log(n)",,fill="log(n)"),alpha=.2)+
   coord_flip(xlim=c(.6,0),ylim=c(-5,25))+
   scale_x_reverse("Depth [m]")+
   scale_y_continuous("ROCratio [%]")+
-  scale_color_manual("BDF site",values = colorblind_safe_colors())+
-  scale_fill_manual("BDF site",values = colorblind_safe_colors())+
-  theme_pubclean()+
-  theme(legend.position = "right")+
+  scale_color_manual("BDF site",values = c(rep("white",8),"white"))+
+  scale_fill_manual("BDF site",values = c(rep("white",8),"white"))+
   geom_vline(xintercept = 0)+
-  geom_hline(yintercept = 0)
+  geom_hline(yintercept = 0)+
+  facet_wrap(~site_id)+
+  theme_minimal()+
+  theme(text=element_text(size=20),
+        axis.text = element_text(size=16),
+        strip.text = element_text(size = 20),
+        legend.position = "none")->ROCratioSites
+  
+ggsave(plot=ROCratioSites,
+         filename="ROCratioprofilesSites.png",
+         path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+         width = 15,height = 15)
+
 
 #### landuse ####
 tmp_LU_general%>%
@@ -7888,7 +8016,7 @@ tibble(set="field",allBDF_OSSL_data%>%
          filter(Device!="Profilspaten"&Campaign%>%str_detect("field"))%>%
          evaluate_model_adjusted(obs="dB",pred=bd_usda.a4_g.cm3_pred)),
 )%>%select(set,n,rmse,R2,rpd,linsCCC,bias,b)#view
-# END ####  
+
 
 tmp%>%filter(Device!="Profilspaten"&u3<=.5)%>%
   pivot_wider(names_from = "metric",values_from = "value")%>%
@@ -7908,3 +8036,57 @@ tmp%>%filter(Device!="Profilspaten"&u3<=.5)%>%
                     breaks = c("obs","predOSSL_dB105_TOC","pred_dB105_TOC","pred_dB105_pred_TOC"),
                     values = c(colorblind_safe_colors()[c(2,4,6,7)]),
                     labels = c("Measured","Predicted stock OSSL","Predicted stock saxSSL","Predicted stock saxSSL (direct)"))
+
+# TOC content timeseries ####
+allPRED=allBDF_OSSL_data%>%left_join(all_data,by="LabelEvent","site_id")
+saveRDS(allPRED,"C:/Users/adam/Desktop/UNI/PhD/DISS/data/allPRED")
+
+
+#' 
+
+allPRED%>%
+  filter(site_id.x%in%(BDF_SSL%>%filter(str_detect(Campaign,"2024"))%>%pull(site_id)%>%unique))%>%
+  #filter(!str_detect(Campaign,"field"))%>% # no field data
+  transmute(
+    yr=year(DateEvent.x),
+     site_id=if_else(site_id.x=="BDF59","BDF24",site_id.x),
+     Depth_top=Depth_top.x,
+     Depth_bottom=Depth_bottom.x,
+     TOC_obs=`TOC [wt-%].x`,
+     CORG_obs=`CORG  [wt-%].x`,
+     TOC_pred_cubist=`cubist_spc_sg_snv_rs4-log1p-TOC`$pred,
+     TOC_pred_ossl=oc_usda.c729_w.pct_pred,
+     CORG_pred_cubist=`cubist_spc_sg_snv_rs4-log1p-CORG`$pred,
+     )%>%
+  cm_aggregate(depth_top_col = "Depth_top",depth_bottom_col = "Depth_bottom",
+               aggregate_list = c("TOC_obs",
+                                  "CORG_obs",
+                                  "TOC_pred_cubist",
+                                  "TOC_pred_ossl",
+                                  "CORG_pred_cubist"),
+               group_list = c("site_id","yr"),
+               res_out = .05)->agg_allPRED
+  
+
+agg_allPRED%>%
+  pivot_longer(cols=c(TOC_obs, CORG_obs, TOC_pred_cubist, TOC_pred_ossl ,CORG_pred_cubist))%>%
+                 ggplot(aes(x=c(o3+u3)/2,y=value))+
+  geom_line(aes(group=paste(name,yr),col=yr))+
+  facet_wrap(~site_id)+
+  coord_flip()+
+  scale_x_reverse()
+
+agg_allPRED%>%filter(u3<=.5)%>%
+  pivot_longer(cols=c(TOC_obs, CORG_obs, TOC_pred_cubist, TOC_pred_ossl ,CORG_pred_cubist))%>%
+  group_by(site_id,yr,name)%>%
+  summarise(meanVal=mean(value,na.rm=T))%>%
+  ggplot(aes(x=yr,y=meanVal,col=name))+
+  geom_point()+
+  geom_smooth(method="glm",alpha=.1)+
+  facet_wrap(~site_id,ncol=2)+
+  theme_pubr()
+  
+#' make pretty for appendix. Split in topsoil / subsoil
+
+
+# END ####  
