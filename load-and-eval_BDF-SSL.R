@@ -64,7 +64,8 @@
     install.packages("ggpubr")
     require(ggpubr)
   }
-    
+   
+  
     if(!require(ggstatsplot)){
       install.packages("ggstatsplot")
       require(ggstatsplot)
@@ -218,7 +219,7 @@ variable_lookup=list(
 "Al_t"="Al_t [mg/kg]",
 "B_t"="B_t [mg/kg]",
 "Ca_t"="Ca_t [mg/kg]",
-"CORG"="CORG  [wt-%]",
+"CORG"="CORG [wt-%]", #sometimes there is a double space...
 "Ct"= "Ct [wt-%]",
 "Cu_t" = "Cu_t [mg/kg]",
 "Fe_t" = "Fe_t [mg/kg]" ,
@@ -791,6 +792,47 @@ data%>%filter(LabelEvent%>%substr(2,2)%in%c("R","Q","P")&Depth_bottom>0)%>%
                values_to = "n")->count_df
 
 ### TOC ####
+
+#### compare lutro TOC with calc atro TOC ####
+# vols
+RK_diameter=6.35 #cm ~2.5 inch (V = pi * RK_diameter^2 / 4 * (Tiefe_bis - Tiefe_von))
+RK_area=(RK_diameter/2)**2*3.1415926 #cm2 (V per 1cm Höhe)
+QS_vol=66 #cm³ known syringe volume
+PS_area=a=8*2 #cm2 (V per 1cm Höhe) (width*depth, V = PS_area * (Tiefe_bis - Tiefe_von))
+
+
+
+BDF_SSL%>%filter(Campaign=="DE-2023-BDF_field"&Depth_top>=0&Device!="Gestörte Probe")%>%
+  mutate(LabelEvent,
+            site_id,
+            Device,
+         V=case_match(Device,
+                      "Rammkern"~RK_area*(Depth_bottom-Depth_top)*100,
+                      "Quicksampler"~QS_vol,
+                      "Profilspaten"~PS_area*(Depth_bottom-Depth_top)*100),
+         TOC_L=`TOC [wt-%]`,
+         TOC_A=`TOC [wt-%]`*`FSS_40 [g/cm3]`/`FSS_105 [g/cm3]`,
+         mL=`FSS_40 [g/cm3]`*V,
+         mA=`FSS_105 [g/cm3]`*V
+         )->TOC_air_oven
+
+TOC_air_oven%>%group_by(site_id)%>%summarise(diff=mean((TOC_L-TOC_A)/TOC_A*100, na.rm=T))
+
+
+TOC_air_oven%>%ggplot(aes(x=`FSS_40 [g/cm3]`-`FSS_105 [g/cm3]`,y=100*(TOC_L-TOC_A)/TOC_A,col=site_id))+
+  geom_point()+
+  xlab("Difference between FSS40 and FSS105 [g/cm³]")+
+  ylab("Relative error of TOC content (air-dry vs. oven-dry) [%]")+
+  scale_color_manual("",values = colorblind_safe_colors()[c(2,3,4,8)])+
+  theme_pubr()+
+  theme(legend.position = "inside",
+        legend.position.inside = c(.8,.8))->TOC_lutro_atro_diff
+TOC_lutro_atro_diff%>%ggExtra::ggMarginal(groupColour = F,groupFill = T,alpha=.2)
+ggsave(plot=TOC_lutro_atro_diff%>%ggExtra::ggMarginal(groupColour = F,groupFill = T,alpha=.2),
+       filename="TOC_lutro_atro_diff.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width =7,height = 5)
+
+
+
 data_1cm%>%
   ggplot(aes(x=site_id,y=`TOC [wt-%]`))+
   geom_violin(aes(fill=site_id),alpha=.25,width=.9,scale="width")+
@@ -831,6 +873,12 @@ ggsave(filename="TOC_test_diff_depth.png",path="C:/Users/adam/Desktop/UNI/PhD/DI
 
 
 ggstatsplot::grouped_ggbetweenstats(data = data_1cm%>%filter(set%in%c("0-15 cm","15-30 cm", "30-50 cm")),x=site_id,y=`TOC [wt-%]`,grouping.var = set,type="np")#%>%
+
+
+
+
+
+
 
 ############################################################################################################################################################################################################### #
 # insert ####
@@ -4981,6 +5029,9 @@ if(F){ # takes quite some time to run
   )->all_test_eval
   
   
+  
+  
+  
   #tmp=readRDS(paste0(data_dir,"/Sean_Environment/R_main/models/2024 models/Cubist_75-25-var-dependant_preProcess/cubist_spc_sg1d_rs4-log1p-Mg_t"))
   eval_all=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/all_eval"))
   eval_zeitreihe=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/all_zeitreihe"))
@@ -5017,8 +5068,81 @@ all_data=readRDS(paste0(data_dir,"/Sean_Environment/R_main/model_out/all_data"))
 # !!! log1p mbl are not expm1 yet !!! -> accounted for in get_eval_obs_pred
 # !!! possibly ID mismatch for MBL_frisch !!!
 
+all_test_eval%>%filter(!str_detect(variable,"ratio"))%>%
+  transmute(
+    Variable=variable,
+    `Model type`=type,
+    `Pre-Processing`=set,
+    Transformation=trans,
+    n=n,
+    RMSE=rmse%>%signif(digits =3),
+    R2=R2%>%signif(digits =3),
+    slope=b%>%signif(digits =3),
+    bias=bias%>%signif(digits =3),
+    RPD=rpd%>%signif(digits =3),
+    `Lin's CCC`=linsCCC%>%signif(digits =3)
+  )%>%
+  write_excel_csv("C:/Users/adam/Desktop/UNI/PhD/DISS/tables/all_test_eval.csv")
+  
+
+eval_zeitreihe%>%filter(!str_detect(variable,"ratio"))%>%
+  transmute(
+    Variable=variable,
+    `Model type`=type,
+    `Pre-Processing`=set,
+    Transformation=trans,
+    n=n,
+    RMSE=rmse%>%signif(digits =3),
+    R2=R2%>%signif(digits =3),
+    slope=b%>%signif(digits =3),
+    bias=bias%>%signif(digits =3),
+    RPD=rpd%>%signif(digits =3),
+    `Lin's CCC`=linsCCC%>%signif(digits =3)
+  )%>%
+  write_excel_csv("C:/Users/adam/Desktop/UNI/PhD/DISS/tables/all_extended_eval.csv")
 
 
+all_test_eval%>%filter(!str_detect(variable,"ratio"))%>%
+  transmute(
+    Variable=variable,
+    `Model type`=type,
+    `Pre-Processing`=set,
+    Transformation=trans,
+    n=n,
+    RMSE=rmse%>%signif(digits =d),
+    #R2=R2%>%signif(digits =d),
+    #slope=b%>%signif(digits =d),
+    bias=bias%>%signif(digits =d),
+    RPD=rpd%>%signif(digits =d),
+    `Lin's CCC`=linsCCC%>%signif(digits =d)
+  )%>%
+  left_join(
+  eval_zeitreihe%>%filter(!str_detect(variable,"ratio"))%>%
+  transmute(
+    Variable=variable,
+    `Model type`=type,
+    `Pre-Processing`=set,
+    Transformation=trans,
+    n=n,
+    RMSE=rmse%>%signif(digits =d),
+    #R2=R2%>%signif(digits =d),
+    #slope=b%>%signif(digits =d),
+    bias=bias%>%signif(digits =d),
+    RPD=rpd%>%signif(digits =d),
+    `Lin's CCC`=linsCCC%>%signif(digits =d)
+    ),
+    by=c("Variable","Model type","Pre-Processing","Transformation"),
+  suffix = c("test","extended")
+  )%>%
+  mutate(model=paste0(`Model type`,"_",`Pre-Processing`,"-",Transformation,"-",Variable),
+         set_order=case_match(`Pre-Processing`,
+                              "spc_rs4"~1,
+                              "spc_sg_rs4"~2,
+                              "spc_sg_bl_rs4" ~3,
+                              "spc_sg_snv_rs4"~4,
+                              "spc_sg1d_rs4"~5, 
+                              "spc_sg2d_rs4"~6  ))%>%
+  write_excel_csv("C:/Users/adam/Desktop/UNI/PhD/DISS/tables/combined_eval.csv")
 
 
 ## PLOT obs pred ####
@@ -5179,8 +5303,318 @@ ggsave(obspredplt,
        height=8)
   }
 
+# ### all obspred appendix ####
+ALLPRED=left_join(BDF_SSL,all_pred,by=c("LabelEvent"="ID"))%>%
+  rename(`CORG [wt-%]`=`CORG  [wt-%]`)%>%
+  # unlog mbl
+  mutate(across(matches("mbl_.*log1p"),
+                        .fns = function(x){
+                                  x$pred=expm1(x$pred)
+                                  return(x)}
+                        ))
 
 
+# !!!!!!!!!!!!!!!! not als obs var are found 
+# !!!!!!!!!!!!!!!! inflated dataset size
+#### pls ####
+pls_plt=c()
+for (i in names(pls_eval$Obs_Pred_data)){
+  data=ALLPRED%>%
+    filter(str_detect(Campaign,"2024"))%>%
+    transmute(
+      obs=.data[[ variable_lookup[[str_split_fixed(i,"-",3)[,3]]] ]],
+                          pred=.data[[i]]$pred)
+  data_tst=pls_eval$Obs_Pred_data[[i]]$test
+
+  pls_plt[[i]]=
+  ggplot()+
+    geom_hex(data=data,aes(x=obs,
+                           y=pred)) +
+    geom_abline(slope=1)+
+    geom_point(data=data_tst,aes(x=obs,y=pred),col="red",shape=4,alpha=1)+
+    xlab("Observed")+
+    ylab("Predicted")+
+    ggtitle(
+      paste0(Parameter_table%>%filter(Abbreviation==str_split_fixed(i,"-",3)[,3])%>%pull(`Parameter Name`),
+            " [",Parameter_table%>%filter(Abbreviation==str_split_fixed(i,"-",3)[,3])%>%pull(Unit),"]"
+    ),
+    subtitle = i
+    )+
+    scale_fill_viridis_c(option="mako",direction = -1)+
+    theme_pubr()+
+    guides(fill=guide_colourbar(breaks=c(0,1)))
+  
+  # ggsave(plot=tst,filename="tst.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+  #        width=4,
+  #        height=4)
+  #   
+  
+}
+
+#### cubist ####
+cubist_plt=c()
+for (i in names(cubist_eval$Obs_Pred_data)){
+  if (!str_detect(i, "ratio")){#exclude ratio mods
+  data=ALLPRED%>%
+  filter(str_detect(Campaign,"2024"))%>%
+  transmute(
+    obs=.data[[variable_lookup[[str_split_fixed(i,"-",3)[,3]]]]],
+    pred=.data[[i]]$pred)
+data_tst=cubist_eval$Obs_Pred_data[[i]]$test
+
+cubist_plt[[i]]=
+  ggplot()+
+  geom_hex(data=data,aes(x=obs,
+                         y=pred)) +
+  geom_abline(slope=1)+
+  geom_point(data=data_tst,aes(x=obs,y=pred),col="red",shape=4,alpha=1)+
+    geom_abline(slope=1)+
+    xlab("Observed")+
+    ylab("Predicted")+
+    ggtitle(
+      paste0(Parameter_table%>%filter(Abbreviation==str_split_fixed(i,"-",3)[,3])%>%pull(`Parameter Name`),
+             " [",Parameter_table%>%filter(Abbreviation==str_split_fixed(i,"-",3)[,3])%>%pull(Unit),"]"
+      ),
+      subtitle = i
+    )+
+    scale_fill_viridis_c(option="mako",direction = -1)+
+    theme_pubr()+
+    guides(fill=guide_colourbar(breaks=c(0,1)))
+  
+  # ggsave(plot=tst,filename="tst.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+  #        width=4,
+  #        height=4)
+  #   
+  }
+  
+}
+
+
+
+
+mbl_plt=c()
+for (i in names(mbl_eval$Obs_Pred_data)){
+  data=ALLPRED%>%
+    filter(str_detect(Campaign,"2024"))%>%
+    transmute(
+      obs=.data[[ variable_lookup[[str_split_fixed(i,"-",3)[,3]]] ]],
+      pred=.data[[i]]$pred)
+  data_tst=mbl_eval$Obs_Pred_data[[i]]$test
+  
+  mbl_plt[[i]]=
+    ggplot()+
+    geom_hex(data=data,aes(x=obs,
+                           y=pred)) +
+    geom_abline(slope=1)+
+    geom_point(data=data_tst,aes(x=obs,y=pred),col="red",shape=4,alpha=1)+
+    xlab("Observed")+
+    ylab("Predicted")+
+    ggtitle(
+      paste0(Parameter_table%>%filter(Abbreviation==str_split_fixed(i,"-",3)[,3])%>%pull(`Parameter Name`),
+             " [",Parameter_table%>%filter(Abbreviation==str_split_fixed(i,"-",3)[,3])%>%pull(Unit),"]"
+      ),
+      subtitle = i
+    )+
+    scale_fill_viridis_c(option="mako",direction = -1)+
+    theme_pubr()+
+    guides(fill=guide_colourbar(breaks=c(0,1)))
+  
+  # ggsave(plot=tst,filename="tst.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+  #        width=4,
+  #        height=4)
+  #   
+  
+}
+
+
+saveRDS(pls_plt,"C:/Users/adam/Desktop/UNI/PhD/DISS/plots/pls_obspred_all_individual")
+
+saveRDS(cubist_plt,"C:/Users/adam/Desktop/UNI/PhD/DISS/plots/cubist_obspred_all_individual")
+
+saveRDS(mbl_plt,"C:/Users/adam/Desktop/UNI/PhD/DISS/plots/mbl_obspred_all_individual")
+
+all_plt=c(pls_plt,cubist_plt,mbl_plt)
+
+all_mod=tibble(model=c(names(pls_plt),names(cubist_plt),names(mbl_plt)),
+               type=str_split_fixed(model,"_",2)[,1],
+               trans=str_split_fixed(model,"-",3)[,2],
+               variable=str_split_fixed(model,"-",3)[,3],
+               spc=str_split_fixed(str_split_fixed(model,"_",2)[,2],"-",2)[,1]
+)
+
+
+
+
+{
+  obs_pred_table_all=c()
+  for (i in names(pls_eval$Obs_Pred_data)){
+    obs_pred_table_all=bind_rows(
+      obs_pred_table_all,
+      tibble(
+        model=i,
+        set="test",
+        pls_eval$Obs_Pred_data[[i]]$test,
+        type=str_split_fixed(i,"_",2)[,1],
+        trans=str_split_fixed(i,"-",3)[,2],
+        variable=str_split_fixed(i,"-",3)[,3],
+        spc=str_split_fixed(str_split_fixed(i,"_",2)[,2],"-",2)[,1]
+      ),
+      tibble(
+        model=i,
+        set="zr",
+        ALLPRED%>%filter(str_detect(Campaign,"2024"))%>%
+          transmute(
+            obs=.data[[ variable_lookup[[str_split_fixed(i,"-",3)[,3]]] ]],
+            pred=.data[[i]]$pred),
+        type=str_split_fixed(i,"_",2)[,1],
+        trans=str_split_fixed(i,"-",3)[,2],
+        variable=str_split_fixed(i,"-",3)[,3],
+        spc=str_split_fixed(str_split_fixed(i,"_",2)[,2],"-",2)[,1]
+      )
+    )
+  }
+  for (i in names(cubist_eval$Obs_Pred_data)){
+    if(!str_detect(i,"ratio")){
+    obs_pred_table_all=bind_rows(
+      obs_pred_table_all,
+      tibble(
+        model=i,
+        set="test",
+        cubist_eval$Obs_Pred_data[[i]]$test,
+        type=str_split_fixed(i,"_",2)[,1],
+        trans=str_split_fixed(i,"-",3)[,2],
+        variable=str_split_fixed(i,"-",3)[,3],
+        spc=str_split_fixed(str_split_fixed(i,"_",2)[,2],"-",2)[,1]
+      ),
+      tibble(
+        model=i,
+        set="zr",
+        ALLPRED%>%filter(str_detect(Campaign,"2024"))%>%
+          transmute(
+            obs=.data[[ variable_lookup[[str_split_fixed(i,"-",3)[,3]]] ]],
+            pred=.data[[i]]$pred),
+        type=str_split_fixed(i,"_",2)[,1],
+        trans=str_split_fixed(i,"-",3)[,2],
+        variable=str_split_fixed(i,"-",3)[,3],
+        spc=str_split_fixed(str_split_fixed(i,"_",2)[,2],"-",2)[,1]
+      )
+    )
+    }
+  }
+  for (i in names(mbl_eval$Obs_Pred_data)){
+    obs_pred_table_all=bind_rows(
+      obs_pred_table_all,
+      tibble(
+        model=i,
+        set="test",
+        mbl_eval$Obs_Pred_data[[i]]$test,
+        type=str_split_fixed(i,"_",2)[,1],
+        trans=str_split_fixed(i,"-",3)[,2],
+        variable=str_split_fixed(i,"-",3)[,3],
+        spc=str_split_fixed(str_split_fixed(i,"_",2)[,2],"-",2)[,1]
+      ),
+      tibble(
+        model=i,
+        set="zr",
+        ALLPRED%>%filter(str_detect(Campaign,"2024"))%>%
+          transmute(
+            obs=.data[[ variable_lookup[[str_split_fixed(i,"-",3)[,3]]] ]],
+            pred=.data[[i]]$pred),
+        type=str_split_fixed(i,"_",2)[,1],
+        trans=str_split_fixed(i,"-",3)[,2],
+        variable=str_split_fixed(i,"-",3)[,3],
+        spc=str_split_fixed(str_split_fixed(i,"_",2)[,2],"-",2)[,1]
+      )
+    )
+  }
+}
+
+i="CORG"
+
+# plot best mod for each variable only 
+plt_best_all=c()
+for (i in unique(best_mod$variable)){
+ggplot()+
+  geom_abline(slope=1,col="black")+
+    geom_hex(data=obs_pred_table_all%>%
+               filter(variable==i,
+                      model%in%c(best_mod%>%
+                                  filter(variable==i)%>%pull(best))),
+                      aes(x=obs,
+                         y=pred)) +
+  
+  #geom_point(data=obs_pred_table_all%>%filter(variable==i&set=="test"),aes(x=obs,y=pred),col="red",shape=4,alpha=1)+
+  xlab("Observed")+
+  ylab("Predicted")+
+  scale_fill_viridis_c(paste(variable_lookup[[i]]," Count:"),option="mako",direction = -1,end=.9)+
+  theme_pubr()+
+    theme(axis.text.x = element_blank(),
+          panel.grid.major = element_line(colour = "grey"),
+          legend.position="top",
+          legend.justification = c(0,1))+
+  coord_fixed(xlim=range(obs_pred_table_all%>%
+                           filter(variable==i&model%in%c(best_mod%>%filter(variable==i)%>%pull(best)))%>%
+                           pull(obs),obs_pred_table_all%>%
+                           filter(variable==i&
+                                    model%in%c(best_mod%>%
+                                                 filter(variable==i)%>%pull(best)))%>%
+                           pull(pred),na.rm = T),
+              ylim=range(obs_pred_table_all%>%
+                           filter(variable==i&model%in%c(best_mod%>%filter(variable==i)%>%pull(best)))%>%
+                           pull(obs),obs_pred_table_all%>%
+                           filter(variable==i&
+                                    model%in%c(best_mod%>%
+                                                 filter(variable==i)%>%pull(best)))%>%
+                           pull(pred),na.rm = T))+
+  guides(fill=guide_colourbar(breaks=c(0,1)))+
+  facet_grid(rows=vars(factor(variable,levels=names(variable_lookup),labels=variable_lookup)),
+             cols=vars(factor(type,levels=c("pls","cubist","mbl")),paste(spc,"+",trans),
+                       factor(set,levels=c("test","zr"),
+                              labels=c("Testset","Extended Library"))))->plt_best_all[[i]]
+  ggsave(plt_best_all[[i]],
+         path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/obs-pred_tst-zr/",
+         filename=paste0(i,"_pltbesetall.png"),
+                         width=12,height=4)
+}
+
+
+ggplot()+
+  geom_abline(slope=1,col="black")+
+  geom_hex(data=obs_pred_table_all%>%
+             filter(model%in%c(best_mod$best)),
+           aes(x=obs,
+               y=pred)) +
+  
+  #geom_point(data=obs_pred_table_all%>%filter(variable==i&set=="test"),aes(x=obs,y=pred),col="red",shape=4,alpha=1)+
+  xlab("Observed")+
+  ylab("Predicted")+
+  ggtitle(variable_lookup[[i]])+
+  scale_fill_viridis_c(option="mako",direction = -1)+
+  theme_pubr()+
+  theme(axis.text.x = element_blank(),
+        panel.grid.major = element_line(colour = "grey"))+
+  guides(fill=guide_colourbar(breaks=c(0,1)))+
+  facet_grid(rows=vars(variable),
+             cols=vars(factor(type,levels=c("pls","cubist","mbl")),
+                       factor(set,levels=c("test","zr"),
+                              labels=c("Testset","Extended Library"))))
+
+
+for (i in unique(obs_pred_table$variable)){
+ggplot(obs_pred_table_all%>%filter(variable==i))+
+  geom_abline(slope=1)+
+  geom_point(aes(x=obs,y=pred))+
+  xlab("Observed")+
+  ylab("Predicted")+
+  theme_pubr()+
+  coord_equal()+
+  facet_grid(cols=vars(type),rows=vars(trans,spc),scales="fixed")+
+  ggtitle(i)->allobspredplt_i
+ggsave(allobspredplt_i,
+       path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       filename=paste0(i,"allobspredplottest.png"),
+       width=6,height=24,limitsize = F)
+}
 
 #### investigate #####
 filter(all_data,str_starts(LabelEvent,"LC"))%>%
@@ -8041,52 +8475,1020 @@ tmp%>%filter(Device!="Profilspaten"&u3<=.5)%>%
 allPRED=allBDF_OSSL_data%>%left_join(all_data,by="LabelEvent","site_id")
 saveRDS(allPRED,"C:/Users/adam/Desktop/UNI/PhD/DISS/data/allPRED")
 
+# do not use, training data partly extended library
+#svm_dB=read_rds("//zfs1.hrz.tu-freiberg.de/fak3ibf/Hydropedo/Sean_Environment/R_main/models/SVM_models_all/svmLinear_spc_sg_snv_rs4_none_dB")
 
-#' 
+## train svm model on db excl. extended library
+require(caret)
+left_join(BDF_SSL%>%select(-spc_rs),spc_tmp)%>%filter(!Campaign%>%str_detect("2024")&Device!="Profilspaten")%>%
+  mutate(`dB [g/cm3]`=if_else(is.na(`dB [g/cm3]`),`dB_105 [g/cm3]`,`dB [g/cm3]`))%>%
+transmute(X=spc_sg_snv_rs4,y=`dB [g/cm3]`)%>%na.omit()->traindB
 
+### parameter grid ####
+trainGrid<-expand.grid(C=10**seq(-4,0,.1))
+
+### cross-validation ####
+fitControl <- trainControl(
+  ## 10-fold CV
+  method = "cv",
+  number = 10,
+  ## print progress
+  verboseIter = TRUE,
+  returnData = F,
+  allowParallel = T)
+svm_dB_core.fild=train(y=traindB$y,
+                       x=as.matrix(traindB$X),
+                       method="svmLinear",
+                       tuneGrid = trainGrid,
+                       trControl = fitControl,
+)
+
+saveRDS(svm_dB_core.fild,file = paste0(data_dir,"/Sean_Environment/R_main/models/svmLinear_spc_sg_snv_rs4-none-dB_CoreField"))
+
+
+
+
+## prediciton sets #### 
 allPRED%>%
   filter(site_id.x%in%(BDF_SSL%>%filter(str_detect(Campaign,"2024"))%>%pull(site_id)%>%unique))%>%
   #filter(!str_detect(Campaign,"field"))%>% # no field data
   transmute(
-    yr=year(DateEvent.x),
+    yr=if_else(is.na(DateEvent.x),2022,year(DateEvent.x)), #na dates from 2022/2023 campaign. setting 2022 for all
      site_id=if_else(site_id.x=="BDF59","BDF24",site_id.x),
      Depth_top=Depth_top.x,
      Depth_bottom=Depth_bottom.x,
      TOC_obs=`TOC [wt-%].x`,
      CORG_obs=`CORG  [wt-%].x`,
-     TOC_pred_cubist=`cubist_spc_sg_snv_rs4-log1p-TOC`$pred,
-     TOC_pred_ossl=oc_usda.c729_w.pct_pred,
-     CORG_pred_cubist=`cubist_spc_sg_snv_rs4-log1p-CORG`$pred,
+     TOC_pred_saxSSL=`cubist_spc_sg_snv_rs4-log1p-TOC`$pred,
+     TOC_pred_OSSL=oc_usda.c729_w.pct_pred,
+     CORG_pred_saxSSL=`cubist_spc_sg_snv_rs4-log1p-CORG`$pred,
+     CORG_pred_OSSL=oc_usda.c729_w.pct_pred, #same as TOC (same model)
+     db_obs=if_else(is.na(`dB [g/cm3].x`),`dB_105 [g/cm3].x`,`dB [g/cm3].x`),
+     db_pred_saxSSL=predict(svm_dB_core.fild,spc_sg_snv_rs4),
+     db_pred_OSSL=bd_usda.a4_g.cm3_pred
      )%>%
   cm_aggregate(depth_top_col = "Depth_top",depth_bottom_col = "Depth_bottom",
                aggregate_list = c("TOC_obs",
                                   "CORG_obs",
-                                  "TOC_pred_cubist",
-                                  "TOC_pred_ossl",
-                                  "CORG_pred_cubist"),
+                                  "TOC_pred_saxSSL",
+                                  "TOC_pred_OSSL",
+                                  "CORG_pred_saxSSL",
+                                  "CORG_pred_OSSL",
+                                  "db_obs",
+                                  "db_pred_saxSSL",
+                                  "db_pred_OSSL"),
                group_list = c("site_id","yr"),
                res_out = .05)->agg_allPRED
   
+## plot ####
 
-agg_allPRED%>%
-  pivot_longer(cols=c(TOC_obs, CORG_obs, TOC_pred_cubist, TOC_pred_ossl ,CORG_pred_cubist))%>%
+### profile overview ####
+agg_allPRED%>%filter(site_id=="BDF02"&!is.na(yr))%>%
+  mutate(To=TOC_obs*db_obs, Co=CORG_obs*db_obs, 
+         Tps=TOC_pred_saxSSL*db_pred_saxSSL,
+           Tpo=TOC_pred_OSSL*db_pred_OSSL ,
+         Cps=CORG_pred_saxSSL*db_pred_saxSSL,
+         Cpo=CORG_pred_OSSL*db_pred_OSSL)%>%
+  pivot_longer(cols=c(To,Co,Tps,Cps,Tpo,Cpo))%>%
                  ggplot(aes(x=c(o3+u3)/2,y=value))+
-  geom_line(aes(group=paste(name,yr),col=yr))+
-  facet_wrap(~site_id)+
+  geom_line(aes(group=paste(name,yr),col=name))+
+  facet_wrap(~yr)+
   coord_flip()+
   scale_x_reverse()
 
-agg_allPRED%>%filter(u3<=.5)%>%
-  pivot_longer(cols=c(TOC_obs, CORG_obs, TOC_pred_cubist, TOC_pred_ossl ,CORG_pred_cubist))%>%
-  group_by(site_id,yr,name)%>%
+
+### timeseries ####
+#### prep dataset ####
+agg_allPRED%>%#filter(u3<=.6)%>%
+  mutate(depth_range = case_when(
+    o3 < 0 ~ "o",      # litter (neg. depth)
+    o3 >= 0 & o3 < 0.3 ~ "t",     # Depth range 0-0.3m (1cm increments o2<.3 -> u2 <=.3)
+    o3 >= 0.3 & o3 < 0.6 ~ "b",  # Depth range 0.31-0.6m
+    .default = "s"                 # Other depths subsoil >.6
+  ),
+  TOC.stock_obs=TOC_obs*db_obs,
+  TOC.stock_pred_saxSSL=TOC_pred_saxSSL*db_pred_saxSSL,
+  TOC.stock_pred_OSSL=TOC_pred_OSSL*db_pred_OSSL,
+  CORG.stock_obs=CORG_obs*db_obs,
+  CORG.stock_pred_saxSSL=CORG_pred_saxSSL*db_pred_saxSSL,
+  CORG.stock_pred_OSSL=CORG_pred_OSSL*db_pred_OSSL,
+  ) %>%#group_by(depth_range)%>%summarise(n())
+  filter(depth_range%in%c("t","b","s"))->agg_allPRED_prep
+
+
+#### content TOC ####
+agg_allPRED_prep%>%
+  pivot_longer(cols=c(TOC_obs, TOC_pred_saxSSL, TOC_pred_OSSL ,
+                      #CORG_obs, CORG_pred_saxSSL, CORG_pred_OSSL,
+                      #db_obs, db_pred_saxSSL, db_pred_OSSL
+                      ))%>%
+  group_by(site_id,yr,name,depth_range)%>%
   summarise(meanVal=mean(value,na.rm=T))%>%
-  ggplot(aes(x=yr,y=meanVal,col=name))+
-  geom_point()+
-  geom_smooth(method="glm",alpha=.1)+
-  facet_wrap(~site_id,ncol=2)+
-  theme_pubr()
   
-#' make pretty for appendix. Split in topsoil / subsoil
+  ggplot()+
+  
+  geom_linerange(data=tibble(site_id=c("BDF02","BDF23","BDF30","BDF35"),yr=rep(2023,4)),
+                 aes(x = yr,ymin = 0,ymax = 6))+
+  geom_label(data=tibble(site_id=c("BDF02","BDF23","BDF30","BDF35"),yr=rep(2023,4)),
+                 aes(x = yr,y = 6,label="Field sampling"),hjust=1)+
+  
+  geom_point(aes(x=yr,y=meanVal,col=depth_range,fill=depth_range,linetype=name,shape=name))+
+  geom_smooth(method="glm",alpha=.05,aes(x=yr,y=meanVal,col=depth_range,fill=depth_range,linetype=name,shape=name))+
+  facet_wrap(~site_id,ncol=3)+
+  theme_pubr()+
+  scale_x_continuous("")+
+  scale_y_continuous("TOC content [wt-%]")+
+  scale_linetype_discrete("",breaks=c("TOC_obs", "TOC_pred_saxSSL", "TOC_pred_OSSL",
+                                      "CORG_obs", "CORG_pred_saxSSL", "CORG_pred_OSSL"),
+                          labels=c("TOC Observed","TOC saxSSL","TOC OSSL",
+                                   "CORG Observed","CORG saxSSL","CORG OSSL"))+
+  
+  scale_shape_discrete("",breaks=c("TOC_obs", "TOC_pred_saxSSL", "TOC_pred_OSSL",
+                                   "CORG_obs", "CORG_pred_saxSSL", "CORG_pred_OSSL"),
+                       labels=c("TOC Observed","TOC saxSSL","TOC OSSL",
+                                "CORG Observed","CORG saxSSL","CORG OSSL"))+
+  scale_fill_manual("",
+                    breaks=c("t","b","s"),
+                    labels=c("Topsoil (0-30 cm)","Subsoil (30-60 cm)", "Subsoil (60+ cm)"),
+                    values = colorblind_safe_colors()[-1])+
+  
+  scale_color_manual("",
+                     breaks=c("t","b","s"),
+                     labels=c("Topsoil (0-30 cm)","Subsoil (30-60 cm)", "Subsoil (60+ cm)"),
+                     values = colorblind_safe_colors()[-1])+
+  theme(legend.position = "right")->TOC_content_timeseries
+TOC_content_timeseries
+
+ggsave(TOC_content_timeseries+theme(legend.position = "none"),filename = "TOC_content_timeseries.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=12,width=9,device="png")
 
 
+ggsave(TOC_content_timeseries%>%get_legend(),filename = "TOC_content_timeseries_legend.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=4,width=4,device="png")
+
+
+#### content CORG ####
+agg_allPRED_prep%>%
+  pivot_longer(cols=c(#TOC_obs, TOC_pred_saxSSL, TOC_pred_OSSL ,
+                      CORG_obs, CORG_pred_saxSSL, CORG_pred_OSSL,
+                      #db_obs, db_pred_saxSSL, db_pred_OSSL
+  ))%>%
+  group_by(site_id,yr,name,depth_range)%>%
+  summarise(meanVal=mean(value,na.rm=T))%>%
+  
+  ggplot()+
+  
+  geom_linerange(data=tibble(site_id=c("BDF02","BDF23","BDF30","BDF35"),yr=rep(2023,4)),
+                 aes(x = yr,ymin = 0,ymax = 6))+
+  geom_label(data=tibble(site_id=c("BDF02","BDF23","BDF30","BDF35"),yr=rep(2023,4)),
+             aes(x = yr,y = 6,label="Field sampling"),hjust=1)+
+  
+  geom_point(aes(x=yr,y=meanVal,col=depth_range,fill=depth_range,linetype=name,shape=name))+
+  geom_smooth(method="glm",alpha=.05,aes(x=yr,y=meanVal,col=depth_range,fill=depth_range,linetype=name,shape=name))+
+  facet_wrap(~site_id,ncol=3)+
+  theme_pubr()+
+  scale_x_continuous("")+
+  scale_y_continuous("CORG content [wt-%]")+
+  scale_linetype_discrete("",breaks=c("TOC_obs", "TOC_pred_saxSSL", "TOC_pred_OSSL",
+                                      "CORG_obs", "CORG_pred_saxSSL", "CORG_pred_OSSL"),
+                          labels=c("TOC Observed","TOC saxSSL","TOC OSSL",
+                                   "CORG Observed","CORG saxSSL","CORG OSSL"))+
+  
+  scale_shape_discrete("",breaks=c("TOC_obs", "TOC_pred_saxSSL", "TOC_pred_OSSL",
+                                   "CORG_obs", "CORG_pred_saxSSL", "CORG_pred_OSSL"),
+                       labels=c("TOC Observed","TOC saxSSL","TOC OSSL",
+                                "CORG Observed","CORG saxSSL","CORG OSSL"))+
+  scale_fill_manual("",
+                    breaks=c("t","b","s"),
+                    labels=c("Topsoil (0-30 cm)","Subsoil (30-60 cm)", "Subsoil (60+ cm)"),
+                    values = colorblind_safe_colors()[-1])+
+  
+  scale_color_manual("",
+                     breaks=c("t","b","s"),
+                     labels=c("Topsoil (0-30 cm)","Subsoil (30-60 cm)", "Subsoil (60+ cm)"),
+                     values = colorblind_safe_colors()[-1])+
+  theme(legend.position = "right")->CORG_content_timeseries
+CORG_content_timeseries
+
+ggsave(CORG_content_timeseries+theme(legend.position = "none"),filename = "CORG_content_timeseries.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=12,width=9,device="png")
+
+
+ggsave(CORG_content_timeseries%>%get_legend(),filename = "CORG_content_timeseries_legend.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=4,width=4,device="png")
+
+
+
+
+#### db ####
+agg_allPRED_prep%>%
+  pivot_longer(cols=c(#TOC_obs, TOC_pred_saxSSL, TOC_pred_OSSL ,
+                      #CORG_obs, CORG_pred_saxSSL, CORG_pred_OSSL,
+                      db_obs, db_pred_saxSSL, db_pred_OSSL
+  ))%>%
+  group_by(site_id,yr,name,depth_range)%>%
+  summarise(meanVal=mean(value,na.rm=T))%>%
+  
+  ggplot()+
+  
+  geom_linerange(data=tibble(site_id=c("BDF02","BDF23","BDF30","BDF35"),yr=rep(2023,4)),
+                 aes(x = yr,ymin = .5,ymax = 2))+
+  geom_label(data=tibble(site_id=c("BDF02","BDF23","BDF30","BDF35"),yr=rep(2023,4)),
+             aes(x = yr,y = 2,label="Field sampling"),hjust=1)+
+  
+  geom_point(aes(x=yr,y=meanVal,col=depth_range,fill=depth_range,linetype=name,shape=name))+
+  geom_smooth(method="glm",alpha=.05,aes(x=yr,y=meanVal,col=depth_range,fill=depth_range,linetype=name,shape=name))+
+  facet_wrap(~site_id,ncol=3)+
+  theme_pubr()+
+  scale_x_continuous("")+
+  scale_y_continuous("Bulk denstiy [g/cm³]")+
+  scale_linetype_discrete("",breaks=c( "db_obs", "db_pred_saxSSL", "db_pred_OSSL"),
+                          labels=c("Observed","saxSSL","OSSL"))+
+  scale_shape_discrete("",breaks=c( "db_obs", "db_pred_saxSSL", "db_pred_OSSL"),
+                       labels=c("Observed","saxSSL","OSSL"))+
+  scale_fill_manual("",
+                    breaks=c("t","b","s"),
+                    labels=c("Topsoil (0-30 cm)","Subsoil (30-60 cm)", "Subsoil (60+ cm)"),
+                    values = colorblind_safe_colors()[-1])+
+  
+  scale_color_manual("",
+                     breaks=c("t","b","s"),
+                     labels=c("Topsoil (0-30 cm)","Subsoil (30-60 cm)", "Subsoil (60+ cm)"),
+                     values = colorblind_safe_colors()[-1])+
+  theme(legend.position = "right")->db_timeseries
+db_timeseries
+
+ggsave(db_timeseries+theme(legend.position = "none"),filename = "db_timeseries.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=12,width=9,device="png")
+
+
+ggsave(db_timeseries%>%get_legend(),filename = "db_timeseries_legend.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=4,width=4,device="png")
+
+
+#### stock TOC ####
+agg_allPRED_prep%>%
+  pivot_longer(cols=c(#CORG.stock_obs,CORG.stock_pred_saxSSL,CORG.stock_pred_OSSL,
+                      TOC.stock_obs,TOC.stock_pred_saxSSL,TOC.stock_pred_OSSL
+  ))%>%
+  group_by(site_id,yr,name,depth_range)%>%
+  summarise(meanVal=mean(value,na.rm=T))%>%
+  
+  ggplot()+
+  
+  geom_linerange(data=tibble(site_id=c("BDF02","BDF23","BDF30","BDF35"),yr=rep(2023,4)),
+                 aes(x = yr,ymin = 0,ymax = 6))+
+  geom_label(data=tibble(site_id=c("BDF02","BDF23","BDF30","BDF35"),yr=rep(2023,4)),
+             aes(x = yr,y = 6,label="Field sampling"),hjust=1)+
+  
+  geom_point(aes(x=yr,y=meanVal,col=depth_range,fill=depth_range,linetype=name,shape=name))+
+  geom_smooth(method="glm",alpha=.05,aes(x=yr,y=meanVal,col=depth_range,fill=depth_range,linetype=name,shape=name))+
+  facet_wrap(~site_id,ncol=3)+
+  theme_pubr()+
+  scale_x_continuous("")+
+  scale_y_continuous("TOC stock [T/(ha cm)]")+
+  scale_linetype_discrete("",breaks=c("TOC.stock_obs","TOC.stock_pred_saxSSL","TOC.stock_pred_OSSL",
+                                      "CORG.stock_obs","CORG.stock_pred_saxSSL","CORG.stock_pred_OSSL"),
+                          labels=c("TOC stock Observed", "TOC stock saxSSL", "TOC stock OSSL",
+                                   "CORG stock Observed", "CORG stock saxSSL", "CORG stock OSSL"))+
+  scale_shape_discrete("",breaks=c("TOC.stock_obs","TOC.stock_pred_saxSSL","TOC.stock_pred_OSSL",
+                                   "CORG.stock_obs","CORG.stock_pred_saxSSL","CORG.stock_pred_OSSL"),
+                       labels=c("TOC stock Observed", "TOC stock saxSSL", "TOC stock OSSL",
+                                "CORG stock Observed", "CORG stock saxSSL", "CORG stock OSSL"))+
+  scale_fill_manual("",
+                    breaks=c("t","b","s"),
+                    labels=c("Topsoil (0-30 cm)","Subsoil (30-60 cm)", "Subsoil (60+ cm)"),
+                    values = colorblind_safe_colors()[-1])+
+  
+  scale_color_manual("",
+                     breaks=c("t","b","s"),
+                     labels=c("Topsoil (0-30 cm)","Subsoil (30-60 cm)", "Subsoil (60+ cm)"),
+                     values = colorblind_safe_colors()[-1])+
+  theme(legend.position = "right")->TOC_stock_timeseries
+TOC_stock_timeseries
+
+
+ggsave(TOC_stock_timeseries+theme(legend.position = "none"),filename = "TOC_stock_timeseries.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=12,width=9,device="png")
+
+
+ggsave(TOC_stock_timeseries%>%get_legend(),filename = "TOC_stock_timeseries_legend.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=4,width=4,device="png")
+
+
+
+
+
+#### stock corg ####
+agg_allPRED_prep%>%
+  pivot_longer(cols=c(CORG.stock_obs,CORG.stock_pred_saxSSL,CORG.stock_pred_OSSL,
+    #TOC.stock_obs,TOC.stock_pred_saxSSL,TOC.stock_pred_OSSL
+  ))%>%
+  group_by(site_id,yr,name,depth_range)%>%
+  summarise(meanVal=mean(value,na.rm=T))%>%
+  
+  ggplot()+
+  
+  geom_linerange(data=tibble(site_id=c("BDF02","BDF23","BDF30","BDF35"),yr=rep(2023,4)),
+                 aes(x = yr,ymin = 0,ymax = 6))+
+  geom_label(data=tibble(site_id=c("BDF02","BDF23","BDF30","BDF35"),yr=rep(2023,4)),
+             aes(x = yr,y = 6,label="Field sampling"),hjust=1)+
+  
+  geom_point(aes(x=yr,y=meanVal,col=depth_range,fill=depth_range,linetype=name,shape=name))+
+  geom_smooth(method="glm",alpha=.05,aes(x=yr,y=meanVal,col=depth_range,fill=depth_range,linetype=name,shape=name))+
+  facet_wrap(~site_id,ncol=3)+
+  theme_pubr()+
+  scale_x_continuous("")+
+  scale_y_continuous("CORG stock [T/(ha cm)]")+
+  scale_linetype_discrete("",breaks=c("TOC.stock_obs","TOC.stock_pred_saxSSL","TOC.stock_pred_OSSL",
+                                      "CORG.stock_obs","CORG.stock_pred_saxSSL","CORG.stock_pred_OSSL"),
+                          labels=c("TOC stock Observed", "TOC stock saxSSL", "TOC stock OSSL",
+                                   "CORG stock Observed", "CORG stock saxSSL", "CORG stock OSSL"))+
+  scale_shape_discrete("",breaks=c("TOC.stock_obs","TOC.stock_pred_saxSSL","TOC.stock_pred_OSSL",
+                                   "CORG.stock_obs","CORG.stock_pred_saxSSL","CORG.stock_pred_OSSL"),
+                       labels=c("TOC stock Observed", "TOC stock saxSSL", "TOC stock OSSL",
+                                "CORG stock Observed", "CORG stock saxSSL", "CORG stock OSSL"))+
+  scale_fill_manual("",
+                    breaks=c("t","b","s"),
+                    labels=c("Topsoil (0-30 cm)","Subsoil (30-60 cm)", "Subsoil (60+ cm)"),
+                    values = colorblind_safe_colors()[-1])+
+  
+  scale_color_manual("",
+                     breaks=c("t","b","s"),
+                     labels=c("Topsoil (0-30 cm)","Subsoil (30-60 cm)", "Subsoil (60+ cm)"),
+                     values = colorblind_safe_colors()[-1])+
+  theme(legend.position = "right")->CORG_stock_timeseries
+CORG_stock_timeseries
+
+
+ggsave(CORG_stock_timeseries+theme(legend.position = "none"),filename = "CORG_stock_timeseries.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=12,width=9,device="png")
+
+
+ggsave(CORG_stock_timeseries%>%get_legend(),filename = "CORG_stock_timeseries_legend.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=4,width=4,device="png")
+
+
+
+## stat to timeseries plot ####
+
+agg_allPRED_prep%>%
+  pivot_longer(cols=c(TOC_obs, TOC_pred_saxSSL, TOC_pred_OSSL ,
+                      CORG_obs, CORG_pred_saxSSL, CORG_pred_OSSL,
+                      db_obs, db_pred_saxSSL,db_pred_OSSL,
+                      CORG.stock_obs,CORG.stock_pred_saxSSL,CORG.stock_pred_OSSL,
+                      TOC.stock_obs,TOC.stock_pred_saxSSL,TOC.stock_pred_OSSL))%>%
+  group_by(site_id,yr,name,depth_range)%>%
+  summarise(meanVal=mean(value,na.rm=T))%>%
+  group_by(site_id,depth_range,name)%>%
+ # summarise(intercept=lm(formula=meanVal~yr)[["coefficients"]][1])
+
+  nest() %>%
+  
+  # Fit model to each group
+  mutate(n_obs = map_int(data, ~ sum(complete.cases(.x$yr, .x$meanVal)))) %>%
+  filter(n_obs >= 3) %>% # for pval calc
+  mutate(
+    model_summary = purrr::map(data, ~ summary(lm(meanVal ~ yr, data = .x))),
+    intercept = map_dbl(model_summary, ~ .x$coefficients["(Intercept)", "Estimate"]),
+    slope     = map_dbl(model_summary, ~ .x$coefficients["yr", "Estimate"]),
+    pval      = map_dbl(model_summary, ~ .x$coefficients["yr", "Pr(>|t|)"]),
+    r2        = map_dbl(model_summary, ~ .x$r.squared)
+  )%>%
+  select(-data,-model_summary)%>%
+  mutate(depth_range=case_match(depth_range,
+                    "t"~"Topsoil (0-30 cm)",
+                    "b"~"Subsoil (30-60 cm)",
+                    "s"~"Subsoil (60+ cm)")
+         )->trend_stat
+view(trend_stat)
+write_excel_csv(trend_stat%>%
+                  mutate(across(.cols = c("intercept","slope","pval","r2"),.fns = ~signif(.,3))),
+                "C:/Users/adam/Desktop/UNI/PhD/DISS/tables/trend_stat.csv")
+
+## obspred from lm slopes ####
+
+trend_stat%>%ungroup%>%
+  mutate(set=str_split_fixed(name,"_",2)[,2],
+         var=str_split_fixed(name,"_",2)[,1],
+         intercept2000=intercept+2000*slope,
+         slope=10*slope #decadal
+         )%>%
+  select(-intercept,-name)%>%
+  group_by(site_id,depth_range,var)%>%
+  pivot_wider(names_from = set,values_from = c(slope,intercept2000,r2,pval,n_obs)
+              )%>%#view
+    ggplot(aes(x=slope_obs))+
+  geom_abline(slope = 1)+
+  geom_hline(yintercept = 0,linetype="dotted")+
+  geom_vline(xintercept = 0,linetype="dotted")+
+  geom_point(aes(y=slope_pred_saxSSL,col=depth_range,shape="saxSSL",text=site_id))+
+  geom_point(aes(y=slope_pred_OSSL,col=depth_range,shape="OSSL",text=site_id))+
+  theme_pubr()+
+  coord_equal(xlim=range(trend_stat$slope)*11,ylim=range(trend_stat$slope)*11,expand = F)+
+  theme(legend.position = "right")+
+  facet_wrap(vars(factor(var,levels = c("CORG","TOC","db","CORG.stock","TOC.stock"),
+                              labels=c("CORG [wt-%]","TOC [wt-%]","dB [g/cm³]","CORG.stock [T/(ha cm)]","TOC.stock [T/(ha cm)]"))))+
+  scale_x_continuous("Observed change [unit/year]",breaks=c(-.75,-.5,-.25,0,.25),labels = c("","-0.5","","0",""))+
+  scale_y_continuous("Predicted change [unit/year]",breaks=c(-.75,-.5,-.25,0,.25),labels = c("","-0.5","","0",""))+
+  scale_shape_manual("Predicted using",values=c(8,16))+
+  scale_color_manual("Depth range",
+                     breaks=c("Topsoil (0-30 cm)","Subsoil (30-60 cm)", "Subsoil (60+ cm)"),
+                     values = colorblind_safe_colors()[-1])->stock_change_obspred
+stock_change_obspred
+
+
+
+ggsave(stock_change_obspred,filename = "stock_change_obspred.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=6,width=10,device="png")
+
+
+
+
+trend_stat%>%ungroup%>%
+  mutate(set=str_split_fixed(name,"_",2)[,2],
+         var=str_split_fixed(name,"_",2)[,1],
+         intercept2000=intercept+2000*slope)%>%
+  select(-intercept,-name)%>%
+  group_by(site_id,depth_range,var)%>%
+  pivot_wider(names_from = set,values_from = c(slope,intercept2000,r2,pval,n_obs)
+  )%>%#view
+  ggplot(aes(x=slope_pred_saxSSL))+
+  geom_abline(slope = 1)+
+  geom_hline(yintercept = 0,linetype="dotted")+
+  geom_vline(xintercept = 0,linetype="dotted")+
+  #geom_point(aes(y=slope_pred_saxSSL,col=depth_range,shape="saxSSL",text=site_id))+
+  geom_point(aes(y=slope_pred_OSSL,col=depth_range,text=site_id))+
+  theme_pubr()+
+  coord_equal(xlim=range(trend_stat$slope)*1.1,ylim=range(trend_stat$slope)*1.1,expand = F)+
+  theme(legend.position = "right")+
+  facet_wrap(vars(factor(var,levels = c("CORG","TOC","db","CORG.stock","TOC.stock"),
+                         labels=c("CORG [wt-%]","TOC [wt-%]","dB [g/cm³]","CORG.stock [T/(ha cm)]","TOC.stock [T/(ha cm)]"))))+
+  scale_x_continuous("saxSSL change [unit/year]",breaks=c(-.075,-.05,-.025,0,.025),labels = c("","-0.05","","0",""))+
+  scale_y_continuous("OSSL change [unit/year]",breaks=c(-.075,-.05,-.025,0,.025),labels = c("","-0.05","","0",""))+
+ # scale_shape_manual("Predicted using",values=c(8,16))+
+  scale_color_manual("Depth range",
+                     breaks=c("Topsoil (0-30 cm)","Subsoil (30-60 cm)", "Subsoil (60+ cm)"),
+                     values = colorblind_safe_colors()[-1])->stock_change_predpred
+stock_change_predpred
+
+
+ggsave(stock_change_predpred,filename = "stock_change_predpred.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=6,width=10,device="png")
+
+#### eval stat #####
+
+trend_stat%>%ungroup%>%
+  mutate(set=str_split_fixed(name,"_",2)[,2],
+         var=str_split_fixed(name,"_",2)[,1],
+         intercept2000=intercept+2000*slope,
+         slope=slope*10 #10yr timeframe
+         )%>%
+  select(-intercept,-name)%>%
+  group_by(site_id,depth_range,var)%>%
+  pivot_wider(names_from = set,values_from = c(slope,intercept2000,r2,pval,n_obs)
+  )->trend_stat_wide
+
+
+# site + depth
+bind_rows(
+  #corg c
+  tibble(var="CORG",obs="obs",pred="saxSSL",
+         evaluate_model_adjusted(trend_stat_wide%>%filter(var=="CORG"),
+                                  obs="slope_obs",pred="slope_pred_saxSSL")),
+  tibble(var="CORG",obs="obs",pred="OSSL",
+         evaluate_model_adjusted(trend_stat_wide%>%filter(var=="CORG"),
+                                 obs="slope_obs",pred="slope_pred_OSSL")),
+  tibble(var="CORG",obs="saxSSL",pred="OSSL",
+         evaluate_model_adjusted(trend_stat_wide%>%filter(var=="CORG"),
+                                 obs="slope_pred_saxSSL",pred="slope_pred_OSSL")),
+  
+  #toc c
+  tibble(var="TOC",obs="obs",pred="saxSSL",
+         evaluate_model_adjusted(trend_stat_wide%>%filter(var=="TOC"),
+                                 obs="slope_obs",pred="slope_pred_saxSSL")),
+  tibble(var="TOC",obs="obs",pred="OSSL",
+         evaluate_model_adjusted(trend_stat_wide%>%filter(var=="TOC"),
+                                 obs="slope_obs",pred="slope_pred_OSSL")),
+  tibble(var="TOC",obs="saxSSL",pred="OSSL",
+         evaluate_model_adjusted(trend_stat_wide%>%filter(var=="TOC"),
+                                 obs="slope_pred_saxSSL",pred="slope_pred_OSSL")),
+  
+  #db
+  tibble(var="db",obs="obs",pred="saxSSL",
+         evaluate_model_adjusted(trend_stat_wide%>%filter(var=="db"),
+                                 obs="slope_obs",pred="slope_pred_saxSSL")),
+  tibble(var="db",obs="obs",pred="OSSL",
+         evaluate_model_adjusted(trend_stat_wide%>%filter(var=="db"),
+                                 obs="slope_obs",pred="slope_pred_OSSL")),
+  tibble(var="dB",obs="saxSSL",pred="OSSL",
+         evaluate_model_adjusted(trend_stat_wide%>%filter(var=="db"),
+                                 obs="slope_pred_saxSSL",pred="slope_pred_OSSL")),
+  
+
+  #toc st
+  tibble(var="TOC.stock",obs="obs",pred="saxSSL",
+         evaluate_model_adjusted(trend_stat_wide%>%filter(var=="TOC.stock"),
+                                 obs="slope_obs",pred="slope_pred_saxSSL")),
+  
+  tibble(var="TOC.stock",obs="obs",pred="OSSL",
+         evaluate_model_adjusted(trend_stat_wide%>%filter(var=="TOC.stock"),
+                                 obs="slope_obs",pred="slope_pred_OSSL")),
+  tibble(var="TOC.stock",obs="saxSSL",pred="OSSL",
+         evaluate_model_adjusted(trend_stat_wide%>%filter(var=="TOC.stock"),
+                                 obs="slope_pred_saxSSL",pred="slope_pred_OSSL")),
+  
+  
+  #corg st
+  tibble(var="CORG.stock",obs="obs",pred="saxSSL",
+         evaluate_model_adjusted(trend_stat_wide%>%filter(var=="CORG.stock"),
+                                 obs="slope_obs",pred="slope_pred_saxSSL")),
+  
+  tibble(var="CORG.stock",obs="obs",pred="OSSL",
+         evaluate_model_adjusted(trend_stat_wide%>%filter(var=="CORG.stock"),
+                                 obs="slope_obs",pred="slope_pred_OSSL")),
+  tibble(var="CORG.stock",obs="saxSSL",pred="OSSL",
+         evaluate_model_adjusted(trend_stat_wide%>%filter(var=="CORG.stock"),
+                                 obs="slope_pred_saxSSL",pred="slope_pred_OSSL")),
+  
+)->trend_eval
+
+trend_eval%>%select(var,obs,pred,n,rmse,R2,rpd,linsCCC,bias,b)%>%
+  mutate(across(where(~is.numeric(.x)),~signif(.,3)))%>%
+  write_excel_csv("C:/Users/adam/Desktop/UNI/PhD/DISS/tables/trend_eval.csv")
+
+trend_fivenum=c()
+for (v in c("CORG.stock","TOC.stock")){
+  for (s in c("obs","pred_saxSSL","pred_OSSL")){
+    trend_fivenum=bind_rows(
+      trend_fivenum,
+      tibble(var=v,set=s,
+             f=trend_stat_wide%>%
+               filter(var==v)%>%
+               pull(paste0("slope_",s))%>%
+               fivenum%>%
+               list)%>%
+        unnest_wider(f,names_sep = "")%>%
+        rename(min=f1,q25=f2,mn=f3,q75=f4,max=f5)
+    )
+  }
+}
+
+
+
+# negative trends
+(trend_stat%>%
+    group_by(site_id,depth_range)%>%
+    summarise(mean10=mean(slope)*10,abs10=abs(mean10))%>%
+    mutate(depth_range=factor(depth_range,levels = c("Topsoil (0-30 cm)",
+                                                     "Subsoil (30-60 cm)",
+                                                     "Subsoil (60+ cm)")))%>%
+    arrange(depth_range)%>%
+    pull(mean10)< -0.05)%>%which%>%length
+# positive trends
+(trend_stat%>%
+    group_by(site_id,depth_range)%>%
+    summarise(mean10=mean(slope)*10,abs10=abs(mean10))%>%
+    mutate(depth_range=factor(depth_range,levels = c("Topsoil (0-30 cm)",
+                                                     "Subsoil (30-60 cm)",
+                                                     "Subsoil (60+ cm)")))%>%
+    arrange(depth_range)%>%
+    pull(mean10)>0.05)%>%which%>%length
+
+# no trends
+(trend_stat%>%
+    group_by(site_id,depth_range)%>%
+    summarise(mean10=mean(slope)*10,abs10=abs(mean10))%>%
+    mutate(depth_range=factor(depth_range,levels = c("Topsoil (0-30 cm)",
+                                                     "Subsoil (30-60 cm)",
+                                                     "Subsoil (60+ cm)")))%>%
+    arrange(depth_range)%>%
+    pull(abs10)<=0.05)%>%which%>%length
+
+
+
+# site
+# negative trends
+(trend_stat%>%
+    group_by(site_id)%>%
+    summarise(mean10=mean(slope)*10,abs10=abs(mean10))%>%
+    # mutate(depth_range=factor(depth_range,levels = c("Topsoil (0-30 cm)",
+    #                                                  "Subsoil (30-60 cm)",
+    #                                                  "Subsoil (60+ cm)")))%>%
+    # arrange(depth_range)%>%
+    pull(mean10)< -0.05)%>%which%>%length
+# positive trends
+(trend_stat%>%
+    group_by(site_id)%>%
+    summarise(mean10=mean(slope)*10,abs10=abs(mean10))%>%
+    # mutate(depth_range=factor(depth_range,levels = c("Topsoil (0-30 cm)",
+    #                                                  "Subsoil (30-60 cm)",
+    #                                                  "Subsoil (60+ cm)")))%>%
+    # arrange(depth_range)%>%
+    pull(mean10)>0.05)%>%which%>%length
+
+# no trends
+(trend_stat%>%
+    group_by(site_id)%>%
+    summarise(mean10=mean(slope)*10,abs10=abs(mean10))%>%
+    # mutate(depth_range=factor(depth_range,levels = c("Topsoil (0-30 cm)",
+    #                                                  "Subsoil (30-60 cm)",
+    #                                                  "Subsoil (60+ cm)")))%>%
+    # arrange(depth_range)%>%
+    pull(abs10)<=0.05)%>%which%>%length
+
+trend_stat%>%filter(str_detect(name,"TOC.stock_pred"))%>%
+  group_by(site_id,depth_range)%>%
+  summarise(n=mean(n_obs),change10yr=mean(slope)*10,
+            sum(n_obs),
+            change10yr_weighted=mean(slope*n_obs)*10/sum(n_obs),
+            change10yr_weighted2=mean(slope*pval)*10/sum(pval),
+            abs10yr=abs(change10yr),
+            abs10yr_weighted=abs(change10yr_weighted))%>%view("trendsitedepth")
+
+trend_stat%>%filter(str_detect(name,"TOC.stock_pred"))%>%
+  group_by(site_id)%>%
+  summarise(n=mean(n_obs),change10yr=mean(slope)*10,
+            sum(n_obs),
+            change10yr_weighted=mean(slope*n_obs)*10/sum(n_obs),
+            change10yr_weighted2=mean(slope*pval)*10/sum(pval),
+            abs10yr=abs(change10yr),
+            abs10yr_weighted=abs(change10yr_weighted))%>%view("trendsite")
+
+trend_stat%>%filter(str_detect(name,"TOC.stock_pred"))%>%
+  group_by(depth_range)%>%
+  summarise(n=mean(n_obs),change10yr=mean(slope)*10,
+            sum(n_obs),
+            change10yr_weighted=mean(slope*n_obs)*10/sum(n_obs),
+            change10yr_weighted2=mean(slope*pval)*10/sum(pval),
+            abs10yr=abs(change10yr),
+            abs10yr_weighted=abs(change10yr_weighted))%>%view("trenddepth")
+
+
+
+trend_stat%>%mutate(slope10=10*slope,absSlope=abs(slope),
+                    sig=case_when(pval<=.001~"***",
+                                  pval<=.01~"**",
+                                 pval<=.05~"*",
+                                 pval<=.1~".",
+                                 .default = "ns"))%>%view("sig")
+# 
+# trend_stat %>%ungroup%>% filter(
+# name %>% str_detect("TOC.stock_pred")) %>%
+# select(-name)%>%
+# group_by(site_id,depth_range) %>% 
+# summarise_all(mean) %>%
+# mutate(slope10 = 10 * slope, absSlope = abs(slope), 
+#  sig=case_when(pval<=.001~"***",
+#  pval<=.01~"**",
+#  pval<=.05~"*",
+#  pval<=.1~".",
+#  .default = "ns"))%>%view("sig")
+  ### individual tocstock ####
+
+
+#### content TOC ####
+agg_allPRED_prep%>%
+  pivot_longer(cols=c(#CORG.stock_obs,CORG.stock_pred_saxSSL,CORG.stock_pred_OSSL,
+    TOC_obs,TOC_pred_saxSSL,TOC_pred_OSSL
+  ))%>%
+  group_by(site_id,yr,name,depth_range)%>%
+  summarise(meanVal=mean(value,na.rm=T))%>%
+  
+  ggplot()+
+  
+  geom_linerange(data=tibble(site_id=c("BDF02","BDF23","BDF30","BDF35"),yr=rep(2023,4)),
+                 aes(x = yr,ymin = 0,ymax = 6))+
+  geom_label(data=tibble(site_id=c("BDF02","BDF23","BDF30","BDF35"),yr=rep(2023,4)),
+             aes(x = yr,y = 6,label="Field sampling"),hjust=1)+
+  
+  geom_point(aes(x=yr,y=meanVal,col=name,fill=name,shape=name,linetype=name))+
+  geom_smooth(method="glm",alpha=.05,aes(x=yr,y=meanVal,col=name,fill=name,shape=name,linetype=name))+
+  facet_grid(rows=vars(site_id),
+             cols=vars(factor(depth_range,
+                              levels=c("t","b","s"),
+                              labels=c("Topsoil (0-30 cm)","Subsoil (30-60 cm)", "Subsoil (60+ cm)")))
+  )+
+  theme_pubr()+
+  scale_x_continuous("",breaks=seq(1995,2020,5),labels=c("",2000,"",2010,"",2020))+
+  scale_y_continuous("TOC [wt-%]",breaks=seq(0,10,2.5),labels=c("",2.5,"",7.5,""))+
+  scale_linetype_discrete("",breaks=c("TOC_obs","TOC_pred_saxSSL","TOC_pred_OSSL"),
+                          labels=c("TOC Observed", "TOC saxSSL", "TOC OSSL"))+
+  scale_shape_discrete("",breaks=c("TOC_obs","TOC_pred_saxSSL","TOC_pred_OSSL"),
+                       labels=c("TOC Observed", "TOC saxSSL", "TOC OSSL"))+
+  scale_fill_manual("",breaks=c("TOC_obs","TOC_pred_saxSSL","TOC_pred_OSSL"),
+                    labels=c("TOC Observed", "TOC saxSSL", "TOC OSSL"),
+                    values = colorblind_safe_colors()[-1])+
+  
+  scale_color_manual("",breaks=c("TOC_obs","TOC_pred_saxSSL","TOC_pred_OSSL"),
+                     labels=c("TOC Observed", "TOC saxSSL", "TOC OSSL"),
+                     values = colorblind_safe_colors()[-1])+
+  theme(text = element_text(size=20),legend.position = "right",
+        panel.grid.major = element_line())->TOC_timeseries_ind
+TOC_timeseries_ind
+
+
+ggsave(TOC_timeseries_ind+theme(legend.position = "none"),filename = "TOC_timeseries_ind.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=13,width=9,device="png")
+
+
+ggsave(TOC_timeseries_ind%>%get_legend(),filename = "TOC_timeseries_ind_legend.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=4,width=4,device="png")
+
+
+
+
+#### CORG ####
+agg_allPRED_prep%>%
+  pivot_longer(cols=c(CORG_obs,CORG_pred_saxSSL,CORG_pred_OSSL)
+  )%>%
+  group_by(site_id,yr,name,depth_range)%>%
+  summarise(meanVal=mean(value,na.rm=T))%>%
+  
+  ggplot()+
+  
+  geom_linerange(data=tibble(site_id=c("BDF02","BDF23","BDF30","BDF35"),yr=rep(2023,4)),
+                 aes(x = yr,ymin = 0,ymax = 6))+
+  geom_label(data=tibble(site_id=c("BDF02","BDF23","BDF30","BDF35"),yr=rep(2023,4)),
+             aes(x = yr,y = 6,label="Field sampling"),hjust=1)+
+  
+  geom_point(aes(x=yr,y=meanVal,col=name,fill=name,shape=name,linetype=name))+
+  geom_smooth(method="glm",alpha=.05,aes(x=yr,y=meanVal,col=name,fill=name,shape=name,linetype=name))+
+  facet_grid(rows=vars(site_id),
+             cols=vars(factor(depth_range,
+                              levels=c("t","b","s"),
+                              labels=c("Topsoil (0-30 cm)","Subsoil (30-60 cm)", "Subsoil (60+ cm)")))
+  )+
+  theme_pubr()+
+  scale_x_continuous("",breaks=seq(1995,2020,5),labels=c("",2000,"",2010,"",2020))+
+  scale_y_continuous("CORG [wt-%]",breaks=seq(0,10,2.5),labels=c("",2.5,"",7.5,""))+
+  scale_linetype_discrete("",breaks=c("CORG_obs","CORG_pred_saxSSL","CORG_pred_OSSL"),
+                          labels=c("CORG Observed", "CORG saxSSL", "CORG OSSL"))+
+  scale_shape_discrete("",breaks=c("CORG_obs","CORG_pred_saxSSL","CORG_pred_OSSL"),
+                       labels=c("CORG Observed", "CORG saxSSL", "CORG OSSL"))+
+  scale_fill_manual("",breaks=c("CORG_obs","CORG_pred_saxSSL","CORG_pred_OSSL"),
+                    labels=c("CORG Observed", "CORG saxSSL", "CORG OSSL"),
+                    values = colorblind_safe_colors()[-1])+
+  
+  scale_color_manual("",breaks=c("CORG_obs","CORG_pred_saxSSL","CORG_pred_OSSL"),
+                     labels=c("CORG Observed", "CORG saxSSL", "CORG OSSL"),
+                     values = colorblind_safe_colors()[-1])+
+  theme(text = element_text(size=20),legend.position = "right",
+        panel.grid.major = element_line())->CORG_timeseries_ind
+CORG_timeseries_ind
+
+
+ggsave(CORG_timeseries_ind+theme(legend.position = "none"),filename = "CORG_timeseries_ind.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=13,width=9,device="png")
+
+
+ggsave(CORG_timeseries_ind%>%get_legend(),filename = "CORG_timeseries_ind_legend.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=4,width=4,device="png")
+
+
+
+
+#### dB ####
+agg_allPRED_prep%>%
+  pivot_longer(cols=c(db_obs, db_pred_saxSSL, db_pred_OSSL
+  ))%>%
+  group_by(site_id,yr,name,depth_range)%>%
+  summarise(meanVal=mean(value,na.rm=T))%>%
+  
+  ggplot()+
+  
+  geom_linerange(data=tibble(site_id=c("BDF02","BDF23","BDF30","BDF35"),yr=rep(2023,4)),
+                 aes(x = yr,ymin = .5,ymax = 2))+
+  geom_label(data=tibble(site_id=c("BDF02","BDF23","BDF30","BDF35"),yr=rep(2023,4)),
+             aes(x = yr,y = 2,label="Field sampling"),hjust=1)+
+  
+  geom_point(aes(x=yr,y=meanVal,col=name,fill=name,shape=name,linetype=name))+
+  geom_smooth(method="glm",alpha=.05,aes(x=yr,y=meanVal,col=name,fill=name,shape=name,linetype=name))+
+  facet_grid(rows=vars(site_id),
+             cols=vars(factor(depth_range,
+                              levels=c("t","b","s"),
+                              labels=c("Topsoil (0-30 cm)","Subsoil (30-60 cm)", "Subsoil (60+ cm)")))
+  )+
+  theme_pubr()+
+  scale_x_continuous("",breaks=seq(1995,2020,5),labels=c("",2000,"",2010,"",2020))+
+  scale_y_continuous("dB [g/cm³]",breaks=seq(.5,2.5,.5),labels=c("",1,"",2,""))+
+  scale_linetype_discrete("",breaks=c("db_obs","db_pred_saxSSL","db_pred_OSSL"),
+                          labels=c("dB Observed", "dB saxSSL", "dB OSSL"))+
+  scale_shape_discrete("",breaks=c("db_obs","db_pred_saxSSL","db_pred_OSSL"),
+                       labels=c("dB Observed", "dB saxSSL", "dB OSSL"))+
+  scale_fill_manual("",breaks=c("db_obs","db_pred_saxSSL","db_pred_OSSL"),
+                    labels=c("dB Observed", "dB saxSSL", "dB OSSL"),
+                    values = colorblind_safe_colors()[-1])+
+  
+  scale_color_manual("",breaks=c("db_obs","db_pred_saxSSL","db_pred_OSSL"),
+                     labels=c("dB Observed", "dB saxSSL", "dB OSSL"),
+                     values = colorblind_safe_colors()[-1])+
+  theme(text = element_text(size=20),legend.position = "right",
+        panel.grid.major = element_line())->dB_timeseries_ind
+dB_timeseries_ind
+
+
+ggsave(dB_timeseries_ind+theme(legend.position = "none"),filename = "dB_timeseries_ind.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=13,width=9,device="png")
+
+
+ggsave(dB_timeseries_ind%>%get_legend(),filename = "dB_timeseries_ind_legend.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=4,width=4,device="png")
+
+
+
+#####################################################################
+
+
+
+#### stock TOC ####
+agg_allPRED_prep%>%
+  pivot_longer(cols=c(#CORG.stock_obs,CORG.stock_pred_saxSSL,CORG.stock_pred_OSSL,
+    TOC.stock_obs,TOC.stock_pred_saxSSL,TOC.stock_pred_OSSL
+  ))%>%
+  group_by(site_id,yr,name,depth_range)%>%
+  summarise(meanVal=mean(value,na.rm=T))%>%
+  
+  ggplot()+
+  
+  geom_linerange(data=tibble(site_id=c("BDF02","BDF23","BDF30","BDF35"),yr=rep(2023,4)),
+                 aes(x = yr,ymin = 0,ymax = 6))+
+  geom_label(data=tibble(site_id=c("BDF02","BDF23","BDF30","BDF35"),yr=rep(2023,4)),
+             aes(x = yr,y = 6,label="Field sampling"),hjust=1)+
+  
+  geom_point(aes(x=yr,y=meanVal,col=name,fill=name,shape=name,linetype=name))+
+  geom_smooth(method="glm",alpha=.05,aes(x=yr,y=meanVal,col=name,fill=name,shape=name,linetype=name))+
+  facet_grid(rows=vars(site_id),
+             cols=vars(factor(depth_range,
+                              levels=c("t","b","s"),
+                              labels=c("Topsoil (0-30 cm)","Subsoil (30-60 cm)", "Subsoil (60+ cm)")))
+             )+
+  theme_pubr()+
+  scale_x_continuous("",breaks=seq(1995,2020,5),labels=c("",2000,"",2010,"",2020))+
+  scale_y_continuous("TOC stock [T/(ha cm)]",breaks=seq(0,10,2.5),labels=c("",2.5,"",7.5,""))+
+  scale_linetype_discrete("",breaks=c("TOC.stock_obs","TOC.stock_pred_saxSSL","TOC.stock_pred_OSSL",
+                                                         "CORG.stock_obs","CORG.stock_pred_saxSSL","CORG.stock_pred_OSSL"),
+                                             labels=c("TOC stock Observed", "TOC stock saxSSL", "TOC stock OSSL",
+                                                      "CORG stock Observed", "CORG stock saxSSL", "CORG stock OSSL"))+
+  scale_shape_discrete("",breaks=c("TOC.stock_obs","TOC.stock_pred_saxSSL","TOC.stock_pred_OSSL",
+                                   "CORG.stock_obs","CORG.stock_pred_saxSSL","CORG.stock_pred_OSSL"),
+                       labels=c("TOC stock Observed", "TOC stock saxSSL", "TOC stock OSSL",
+                                "CORG stock Observed", "CORG stock saxSSL", "CORG stock OSSL"))+
+  scale_fill_manual("",breaks=c("TOC.stock_obs","TOC.stock_pred_saxSSL","TOC.stock_pred_OSSL",
+                                "CORG.stock_obs","CORG.stock_pred_saxSSL","CORG.stock_pred_OSSL"),
+                    labels=c("TOC stock Observed", "TOC stock saxSSL", "TOC stock OSSL",
+                             "CORG stock Observed", "CORG stock saxSSL", "CORG stock OSSL"),
+                    values = colorblind_safe_colors()[-1])+
+  
+  scale_color_manual("",breaks=c("TOC.stock_obs","TOC.stock_pred_saxSSL","TOC.stock_pred_OSSL",
+                                 "CORG.stock_obs","CORG.stock_pred_saxSSL","CORG.stock_pred_OSSL"),
+                     labels=c("TOC stock Observed", "TOC stock saxSSL", "TOC stock OSSL",
+                              "CORG stock Observed", "CORG stock saxSSL", "CORG stock OSSL"),
+                     values = colorblind_safe_colors()[-1])+
+  theme(text = element_text(size=20),legend.position = "right",
+        panel.grid.major = element_line())->TOC_stock_timeseries_ind
+TOC_stock_timeseries_ind
+
+
+ggsave(TOC_stock_timeseries_ind+theme(legend.position = "none"),filename = "TOC_stock_timeseries_ind.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=13,width=9,device="png")
+
+
+ggsave(TOC_stock_timeseries_ind%>%get_legend(),filename = "TOC_stock_timeseries_ind_legend.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=4,width=4,device="png")
+
+
+#### stock CORG ####
+agg_allPRED_prep%>%
+  pivot_longer(cols=c(CORG.stock_obs,CORG.stock_pred_saxSSL,CORG.stock_pred_OSSL
+  ))%>%
+  group_by(site_id,yr,name,depth_range)%>%
+  summarise(meanVal=mean(value,na.rm=T))%>%
+  
+  ggplot()+
+  
+  geom_linerange(data=tibble(site_id=c("BDF02","BDF23","BDF30","BDF35"),yr=rep(2023,4)),
+                 aes(x = yr,ymin = 0,ymax = 6))+
+  geom_label(data=tibble(site_id=c("BDF02","BDF23","BDF30","BDF35"),yr=rep(2023,4)),
+             aes(x = yr,y = 6,label="Field sampling"),hjust=1)+
+  
+  geom_point(aes(x=yr,y=meanVal,col=name,fill=name,shape=name,linetype=name))+
+  geom_smooth(method="glm",alpha=.05,aes(x=yr,y=meanVal,col=name,fill=name,shape=name,linetype=name))+
+  facet_grid(rows=vars(site_id),
+             cols=vars(factor(depth_range,
+                              levels=c("t","b","s"),
+                              labels=c("Topsoil (0-30 cm)","Subsoil (30-60 cm)", "Subsoil (60+ cm)")))
+  )+
+  theme_pubr()+
+  scale_x_continuous("",breaks=seq(1995,2020,5),labels=c("",2000,"",2010,"",2020))+
+  scale_y_continuous("CORG stock [T/(ha cm)]",breaks=seq(0,10,2.5),labels=c("",2.5,"",7.5,""))+
+  scale_linetype_discrete("",breaks=c("CORG.stock_obs","CORG.stock_pred_saxSSL","CORG.stock_pred_OSSL"),
+                          labels=c("CORG stock Observed", "CORG stock saxSSL", "CORG stock OSSL"))+
+  scale_shape_discrete("",breaks=c("CORG.stock_obs","CORG.stock_pred_saxSSL","CORG.stock_pred_OSSL"),
+                       labels=c("CORG stock Observed", "CORG stock saxSSL", "CORG stock OSSL"))+
+  scale_fill_manual("",breaks=c("CORG.stock_obs","CORG.stock_pred_saxSSL","CORG.stock_pred_OSSL"),
+                    labels=c("CORG stock Observed", "CORG stock saxSSL", "CORG stock OSSL"),
+                    values = colorblind_safe_colors()[-1])+
+  
+  scale_color_manual("",breaks=c("CORG.stock_obs","CORG.stock_pred_saxSSL","CORG.stock_pred_OSSL"),
+                     labels=c("CORG stock Observed", "CORG stock saxSSL", "CORG stock OSSL"),
+                     values = colorblind_safe_colors()[-1])+
+  theme(text = element_text(size=20),legend.position = "right",
+        panel.grid.major = element_line())->CORG_stock_timeseries_ind
+CORG_stock_timeseries_ind
+
+
+ggsave(CORG_stock_timeseries_ind+theme(legend.position = "none"),filename = "CORG_stock_timeseries_ind.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=13,width=9,device="png")
+
+
+ggsave(CORG_stock_timeseries_ind%>%get_legend(),filename = "CORG_stock_timeseries_ind_legend.png",
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+       height=4,width=4,device="png")
+
+#### individual sites TOC stock ####
+
+# Reshape and summarize
+agg_allPRED_long <- agg_allPRED_prep %>%
+  pivot_longer(cols = c(#CORG.stock_obs, CORG.stock_pred_saxSSL, CORG.stock_pred_OSSL,
+                        TOC.stock_obs, TOC.stock_pred_saxSSL, TOC.stock_pred_OSSL)) %>%
+  group_by(site_id, yr, name, depth_range) %>%
+  summarise(meanVal = mean(value, na.rm = TRUE), .groups = "drop")
+
+# Sampling annotation for vertical line and label
+sampling_annotations <- tibble(site_id = c("BDF02", "BDF23", "BDF30", "BDF35"),
+                               yr = rep(2023, 4))
+
+# Color palette
+my_colors <- colorblind_safe_colors()[-1]  # assuming this function exists
+
+# Split by site_id and plot each individually (with facet by depth_range)
+plot_list <- agg_allPRED_long %>%
+  split(.$site_id) %>%
+  lapply(function(site_data) {
+    site_name <- unique(site_data$site_id)
+    
+    ggplot(site_data) +
+      geom_linerange(data = filter(sampling_annotations, site_id == site_name),
+                     aes(x = yr, ymin = 0, ymax = 6)) +
+      geom_label(data = filter(sampling_annotations, site_id == site_name),
+                 aes(x = yr, y = 6, label = "Field sampling"), hjust = 1) +
+      geom_point(aes(x = yr, y = meanVal, col = name, fill = name,
+                     linetype = name, shape = name)) +
+      geom_smooth(method = "glm", alpha = 0.05,
+                  aes(x = yr, y = meanVal, col = name, fill = name,
+                      linetype = name, shape = name)) +
+      facet_wrap(~factor(depth_range,
+                         levels=c("t","b","s"),
+                         labels=c("Topsoil (0-30 cm)","Subsoil (30-60 cm)", "Subsoil (60+ cm)")), ncol = 3) +  #  faceting by depth_range
+      scale_x_continuous("",limits = c(1994,2024),breaks=seq(1995,2020,5),labels=c("",2000,"",2010,"",2020))+
+      scale_y_continuous("TOC stock [T/(ha cm)]",limits = c(0,8),breaks=seq(0,10,2.5),labels=c("",2.5,"",7.5,""))+
+      scale_linetype_discrete("",
+                              breaks = c("TOC.stock_obs", "TOC.stock_pred_saxSSL", "TOC.stock_pred_OSSL"),
+                              labels = c("TOC stock Observed", "TOC stock saxSSL", "TOC stock OSSL")) +
+      scale_shape_discrete("",
+                           breaks = c("TOC.stock_obs", "TOC.stock_pred_saxSSL", "TOC.stock_pred_OSSL"),
+                           labels = c("TOC stock Observed", "TOC stock saxSSL", "TOC stock OSSL")) +
+      scale_fill_manual("",
+                        breaks = c("TOC.stock_obs", "TOC.stock_pred_saxSSL", "TOC.stock_pred_OSSL"),
+                        labels = c("TOC stock Observed", "TOC stock saxSSL", "TOC stock OSSL"),
+                        values = my_colors) +
+      scale_color_manual("",
+                         breaks = c("TOC.stock_obs", "TOC.stock_pred_saxSSL", "TOC.stock_pred_OSSL"),
+                         labels = c("TOC stock Observed", "TOC stock saxSSL", "TOC stock OSSL"),
+                         values = my_colors) +
+      theme_pubr() +
+      theme(legend.position = "right",
+            panel.grid.major = element_line()) +
+      ggtitle(site_name)
+  })
+
+for (site in names(plot_list)) {
+
+  
+  ggsave(plot_list[[site]]+theme(legend.position = "none"),filename = paste0("TOC_stock_timeseries_", site, ".png"),
+         path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
+         height=3,width=9,device="png")
+}
 # END ####  
