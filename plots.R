@@ -429,6 +429,10 @@ USDA_class%>%group_by(usda_class)%>%summarise(count=n(),percent=count/nrow(USDA_
 
 
 ### density deviation #####
+
+BDF_frisch_density=read_csv("//zfs1.hrz.tu-freiberg.de/fak3ibf/Hydropedo/Sean_Environment/BDF/BDF-SSL/1_data/3_physik/Adam-2024_atro_full.csv")
+
+
 ggpubr::ggarrange(
   
   
@@ -446,8 +450,10 @@ ggpubr::ggarrange(
     geom_point(aes(y=`dB_105 [g/cm3]`-`dB_105FB [g/cm3]`,fill="dB105"),shape=21,alpha=.5)+
     #geom_smooth(aes(y=`dB_105 [g/cm3]`-`dB_105FB [g/cm3]`,col="dB105"),method="gam")+
     
+   # geom_errorbar(aes(x=75,ymin=0,ymax=.09),inherit.aes = F,width=5)+
+    
     xlab("Coarse fraction [%]")+
-    ylab("Difference in bulk density [g/cm³]")+
+    ylab("Difference in density [g/cm³]")+
     scale_color_manual("",breaks=c("dB40","dB105"),values=ggthemes::colorblind_pal()(3)[2:3],labels=c("air dry","oven dry"))+
     scale_fill_manual("",breaks=c("dB40","dB105"),values=ggthemes::colorblind_pal()(3)[2:3],labels=c("air dry","oven dry"))+
     scale_size_binned("Residual water content [%]")+
@@ -455,7 +461,7 @@ ggpubr::ggarrange(
     theme(legend.position = "top")+
     guides(fill=guide_legend(override.aes = list(size=6),nrow = 2)),
   
-  
+
   
   inner_join(event_table,soil_physics)%>%
     inner_join(BDF_frisch_density%>%transmute(LabelEvent=sample_id,res1=(lutro-atro)/lutro,res2=(LUTRO-ATRO)/LUTRO))%>%
@@ -474,7 +480,7 @@ ggpubr::ggarrange(
     
     
     xlab("Residual water content [wt-%]")+
-    ylab("Difference in bulk density [g/cm³]")+
+    scale_y_continuous("Difference in density [g/cm³]",limits=c(0,.09))+
     scale_color_manual("",breaks=c("FB","sample"),values=ggthemes::colorblind_pal()(9)[c(4,8)],labels=c("fine soil","entire sample"))+
     scale_fill_manual("",breaks=c("FB","sample"),values=ggthemes::colorblind_pal()(9)[c(4,8)],labels=c("fine soil","entire sample"))+
     scale_size_binned("Coarse fraction [%]")+
@@ -483,9 +489,11 @@ ggpubr::ggarrange(
     guides(fill=guide_legend(override.aes = list(size=6),nrow = 2))
 )->plt_density_comparison
 
+plt_density_comparison
+
 
 ggsave(plot=plt_density_comparison,filename = "density_field_comparison_tern.png",
-       path = paste0(code_dir,"/GitLab/bdf-ssl_code/plots/"),
+       path = "C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",
        height=5,width=10,device="png")
 
 

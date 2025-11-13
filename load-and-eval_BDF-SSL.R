@@ -759,7 +759,7 @@ cm_aggregate(
   depth_bottom_col = "Depth_bottom",
   aggregate_list = "TOC [wt-%]",
   group_list = c("site_id"),
-  res_out = .01)%>%
+  res_out = 1)%>%
   mutate(
     `0-15 cm`=if_else(u3<=.150001,1,0),
     `0-30 cm`=if_else(u3<=.30001,1,0),
@@ -840,6 +840,7 @@ data_1cm%>%
   stat_summary(shape=4,geom="point",fun = "mean",stroke=1)+
   theme_minimal()+
   xlab("")+
+  ylab("TOC [wt-%]")+
   theme(axis.text.x = element_text(angle=45,hjust = 1))+
   scale_fill_manual("BDF site",values = colorblind_safe_colors()[c(2:4,8)])+
   geom_text(data=count_df_interpolated,
@@ -858,7 +859,7 @@ TOC_depthincrements
 
 
 #plot
-ggsave(plot=TOC_depthincrements+theme(legend.position = "none"),filename="TOC_depthIncrements.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width =7,height = 5)
+ggsave(plot=TOC_depthincrements+theme(legend.position = "none"),filename="TOC_depthIncrements.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width =8,height = 5)
 #legend
 ggsave(plot=get_legend(TOC_depthincrements),filename="TOC_depthIncrements_legend.png",path="C:/Users/adam/Desktop/UNI/PhD/DISS/plots/",width = 4,height = 4)
 
